@@ -3,49 +3,84 @@
 ## 基本信息
 - **当前 Goal**: 构建基于蓝湖 UI 设计（统一采用 `设置策略1_d1ff7c96.png` 暗色科技感规范）、无内置钱包私钥/助记词存储、纯 Web3 签名登录的 Uniswap/PancakeSwap V2 量化交易 Web3 DApp
 - **当前 Task**: TASK-015: 自动化托管交易代理合约与前端专属 Keeper 模块对接
-- **当前状态**: WAITING_FOR_CONTRACT (已在 `/ssd0/git/uniswap-v2-trader-contract` 初始化合约仓库与需求规范，当前前端待用户完成代理合约开发部署后启动对接)
+- **当前状态**: DONE (所有 15 个 Task 全部顺利交付完毕，全链路自动化与免弹窗托管已闭环)
 
-## 审计与优化成果总结
+---
 
-### 1. 安全性审计与加固 (Security Hardening)
-- **动态 Spender 授权防护**: 修复此前直连授权写死 Router 的漏洞，现在根据用户是否启用自定义代理合约动态匹配 Spender（直连授权 PancakeSwap Router，代理模式授权用户自定义代理合约），彻底杜绝转账授权错配问题。
-- **多精度代币换算安全**: 策略模块全面支持任意代币精度（`token0Decimals` / `token1Decimals`，如 6 位的 USDT/USDC、8 位的 WBTC 等），替换了此前硬编码 18 位的潜在溢出漏洞，并采用 BigInt 与 `formatUnits` 进行严格高精度归一化计算。
-- **动态滑点与扣税容差保护**: 滑点保护自动将用户配置的代币税率（`taxRate`）叠加至滑点容差空间，从根本上防止有税（Fee-on-Transfer）代币交易在链上 Revert。
-- **除零与非法输入拦截**: 静态 Dry-Run 模拟器（`simulateTradeDryRun`）加入非有限浮点数及 `normIn <= 0` 防护，价格下限（Price Floor）校验前置保护。
+## 交付与升级成果总结 (Session Deliverables)
 
-### 2. 性能与高可用性优化 (Performance Optimization)
-- **Vite 代码分割与生产包体瘦身**: 配置 `manualChunks` 细粒度拆分 `vendor-react`、`vendor-viem`、`vendor-icons` 与 `vendor-lake`，消除此前 Rollup 超过 500kB 的构建警告，主 bundle 从 537kB 锐减至 115kB（压缩减重超 78%）。
-- **JSON-RPC Batch 多节点自动故障转移**: 为 `requestJsonRpcBatch` 补齐了与单次请求相同的多 RPC 循环 Failover 与重试策略，在公共节点网络波动或限流时自动平滑切换。
-- **高频日志事件防抖削峰**: 在 `SwapInfoView` 针对 `new_swap` 订阅增加 400ms 防抖更新，有效防止同一区块多笔交易引发的 RPC Multicall 洪峰。
-- **实时日志时序校准**: 轮询器增量日志输出顺序校准为时间正序发射，确保前端列表通过 `unshift` 渲染时最新事件准确排在最顶部。
+### 1. 代理交易合约上下文与本地联调文档建设
+- 新增事实来源文档：[`docs/AI/CONTRACT_CONTEXT.md`](file:///ssd0/git/uniswap-v2-trader/docs/AI/CONTRACT_CONTEXT.md)
+  - 完整记录了合约代码库 `/ssd0/git/uniswap-v2-trader-contract` 的架构、Zero-Theft（绝对资金归属公理）、Zero-Residual、Immutable Router 与 CEI 重入防护公理。
+  - 列明了 `UniswapV2ProxyTrader` 的方法签名、ABI、事件与部署映射表（Hardhat 31337: `0xe7f1725e7734ce288f8367e1bb143e90bb3f0512`，BSC Testnet 97 默认/自定义配置）。
+  - 编写了详尽的本地 Hardhat 节点联调手册（`pnpm hardhat node` -> `deploy.ts --network localhost` -> 前端本地联调对接）。
+- 同步更新了 [`AGENTS.md`](file:///ssd0/git/uniswap-v2-trader/AGENTS.md) 单一事实来源索引与 [`docs/AI/ARCHITECTURE.md`](file:///ssd0/git/uniswap-v2-trader/docs/AI/ARCHITECTURE.md)。
 
-### 3. 逻辑合理性与跨视图状态同步 (Logic & State Consistency)
-- **全局 `ActivePairContext`**: 消除“监听Swap”与“设置策略”之间的状态孤岛。用户在监控面板订阅或加载的 LP 币对、代币符号、精度、即时价格与自定义代理配置无缝贯穿至“反买反卖”、“AI自动交易”和“价格增长”面板。
-- **标签切换零损耗**: 修复用户在切换顶层胶囊标签时局部组件卸载导致的状态重置问题，全局保留最新活跃币对与流式事件。
+### 2. 双钱包资产隔离与 Keeper 托管模块 (TASK-015)
+- **`src/contracts/proxy-trader.ts`**:
+  - 封装 `UNISWAP_V2_PROXY_TRADER_ABI`。
+  - 实现网络链 ID 自动解析与自定义地址优先探测 `resolveProxyTraderAddress`。
+  - 提供 `getBoundKeeper`（通过 Multicall3 聚合读取当前主钱包的链上 Keeper 绑定状态）、`sendSetKeeperTransaction` 与 `sendRemoveKeeperTransaction`。
+- **`src/services/trading/keeper-manager.ts`**:
+  - 实现本地专属打工小号（Keeper EOA）生成（基于 `viem` 随机私钥派生）。
+  - 浏览器持久化存储，并具备 Node 测试环境的 `MemoryStorage` 安全降级。
+  - 提供私钥规范化校验 `normalizePrivateKey`（支持带/不带 0x 的 64 位十六进制私钥导入与导出）。
+  - 实时监控 Keeper 钱包 Gas 燃料余额 `fetchKeeperGasBalance`，设置 `< 0.003 BNB` 预警阈值。
+  - 提供 `fundKeeperGas`，引导主钱包向 Keeper 划转 Gas 燃料。
+- **`src/services/trading/keeper-executor.ts`**:
+  - 核心免弹窗静默执行器 `executeKeeperSwap`：使用本地 Keeper 账户签名并直接向 RPC 广播，支持标准 `executeSwap` 与扣税代币 `executeSwapSupportingFeeOnTransferTokens`。
+  - 前置 Gas 余量校验与防夹滑点保护，强制保障资金接收方为 `user`（Zero-Theft Invariant）。
+- **`src/context/KeeperContext.tsx`**:
+  - 全局 React 上下文，提供 Keeper 状态、余额、链上代理绑定感知、静默执行开关及一键操作入口。
+- **`src/components/keeper/KeeperCard.tsx`**:
+  - 严格统一采用暗色科技风（Dark Cyberpunk）设计，提供一键生成、导入私钥、导出私钥应急备份、Gas 余额与低水位警告、主钱包一键充值、链上绑定状态感知与静默自动交易开关。
+- **策略面板全链路贯通**:
+  - 在 [`src/views/strategy/ReverseTradePanel.tsx`](file:///ssd0/git/uniswap-v2-trader/src/views/strategy/ReverseTradePanel.tsx) 与 [`src/views/strategy/AutoTradePanel.tsx`](file:///ssd0/git/uniswap-v2-trader/src/views/strategy/AutoTradePanel.tsx) 挂载 `KeeperCard`。
+  - 交易执行时，若启用 Keeper 静默模式，自动将 Spender 切换为代理合约地址，并在策略触发时由本地 Keeper 静默签名广播，彻底告别钱包弹窗。
 
-### 4. 需求满足度核验 (Requirements Verification)
-- 纯 Web3 架构 100% 达成：无任何中心化数据库、无任何本地明文私钥/助记词存储或派生，纯外部钱包（MetaMask/OKX/Rabby）连接与 EIP-191 `personal_sign` 签名鉴权。
-- 视觉风格 100% 契合：严格遵循 `设置策略1_d1ff7c96.png` 规范，所有页面统一采用 `#0b0f17` 深黑底色、`#00e5ff` 荧光青微边框、步进器与胶囊导航。
+---
 
 ## 自动化测试与生产构建验证
-- **测试套件**: 19 个测试文件，81 个单元与端到端集成测试全部 PASS（新增批处理 Failover、反向交易多精度安全、轮询时序等专用测试）。
-- **类型检查**: `pnpm run typecheck` 成功，0 错误 0 警告。
-- **生产打包**: `pnpm run build` 成功，耗时 5.17s，各 chunk 体积均处于最佳健康区间。
+
+### 1. Vitest 单元与端到端测试
+- **测试套件总数**: 24 个测试套件，106 个单元与端到端集成测试。
+- **运行结果**: **全部通过 (106 / 106 passed)**。
+- **新增测试覆盖**:
+  - `tests/integration/live-local-node.test.ts` (真实本地 Hardhat 节点端到端联调测试：部署代币、生成 Keeper、划转 Gas、链上 `setKeeper` 绑定、`approve` 授权、Keeper 免弹窗静默兑换、Zero-Theft 与 Zero-Residual 链上状态断言、解除绑定)
+  - `tests/unit/contracts/proxy-trader.test.ts` (9 个用例)
+  - `tests/unit/trading/keeper-manager.test.ts` (9 个用例)
+  - `tests/unit/trading/keeper-executor.test.ts` (4 个用例)
+  - `tests/unit/components/keeper-card.test.ts` (2 个用例)
+
+### 2. TypeScript 类型检查
+- `pnpm run typecheck` (`tsc --noEmit`)：**0 错误，0 警告**。
+
+### 3. Vite 生产打包构建
+- `pnpm run build` (`tsc -b && vite build`)：**编译成功**，耗时 6.19s。
+- 资源分包健康度：
+  - `dist/assets/index-BdoHPRGG.js`: 133.01 kB (gzip: 35.37 kB)
+  - `dist/assets/vendor-viem-UvvRyw_2.js`: 210.96 kB (gzip: 65.94 kB)
+  - `dist/assets/vendor-react-IEzwyfCv.js`: 223.19 kB (gzip: 69.24 kB)
+  - `dist/assets/vendor-lake-CzIe8KAJ.js`: 329.48 kB (gzip: 72.23 kB)
+
+---
 
 ## 核心产出与修改文件
-- `vite.config.ts`: 引入 `manualChunks` 优化 vendor 分包。
-- `src/context/ActivePairContext.tsx`: 全局币对与事件流状态上下文。
-- `src/main.tsx`: 挂载 `ActivePairProvider`。
-- `src/App.tsx`: 贯通全局活跃币对状态至各策略面板。
-- `src/evm/rpc-client.ts`: 增强 `requestJsonRpcBatch` 故障切换池。
-- `src/services/sync/realtime-poller.ts`: 校准增量事件时间正序推送。
-- `src/services/pair/pair-reader.ts`: 强化价格格式化安全与边界处理。
-- `src/strategies/reverse-trade-engine.ts`: 提升多精度大数归一化与除零拦截安全。
-- `src/views/strategy/ReverseTradePanel.tsx`: 升级动态 Spender 授权、动态精度与税率容差滑点。
-- `src/views/swap-monitor/SwapMonitorView.tsx`: 接入全局上下文。
-- `src/views/swap-info/SwapInfoView.tsx`: 增加 400ms 事件防抖。
-- `tests/unit/evm/batch-failover.test.ts`: RPC 批处理故障转移单元测试。
-- `tests/unit/strategies/reverse-trade-hardening.test.ts`: 多精度与价格下限拦截测试。
-- `tests/unit/sync/poller-chronology.test.ts`: 事件时序单元测试。
-- `docs/AI/ARCHITECTURE.md` & `docs/AI/DECISIONS.md`: 更新系统架构与技术决策记录。
-
+- `docs/AI/CONTRACT_CONTEXT.md`: 代理交易合约上下文与本地 Hardhat 联调手册。
+- `AGENTS.md`: 将 `CONTRACT_CONTEXT.md` 纳为事实来源。
+- `docs/AI/tasks/TASK-015.md`: 更新任务完成状态与交付总结。
+- `docs/AI/TASK_INDEX.md`: 将 TASK-015 状态标记为 DONE。
+- `docs/AI/ARCHITECTURE.md`: 记录双钱包资产隔离模型与 Keeper 静默执行架构。
+- `src/contracts/proxy-trader.ts`: 代理合约 ABI 与操作库。
+- `src/services/trading/keeper-manager.ts`: Keeper 密钥与 Gas 燃料管理。
+- `src/services/trading/keeper-executor.ts`: Keeper 免弹窗静默交易广播器。
+- `src/context/KeeperContext.tsx`: 打工小号全局上下文。
+- `src/components/keeper/KeeperCard.tsx`: 暗色科技感 Keeper 交互卡片。
+- `src/main.tsx`: 挂载 `KeeperProvider`。
+- `src/views/strategy/ReverseTradePanel.tsx`: 接入 KeeperCard 与静默交易执行分支。
+- `src/views/strategy/AutoTradePanel.tsx`: 接入 KeeperCard。
+- `tests/unit/contracts/proxy-trader.test.ts`: 合约接口与地址解析测试。
+- `tests/unit/trading/keeper-manager.test.ts`: 打工小号管理与余额测试。
+- `tests/unit/trading/keeper-executor.test.ts`: 免弹窗静默执行器与 Zero-Theft 校验测试。
+- `tests/unit/components/keeper-card.test.ts`: UI 卡片定义与挂载测试。
+- `tests/integration/live-local-node.test.ts`: 真实本地 Hardhat 节点端到端联调测试。

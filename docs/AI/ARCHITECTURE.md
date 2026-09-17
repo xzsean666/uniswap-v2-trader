@@ -77,6 +77,10 @@ flowchart TB
 - **`ActivePairContext`**:
   - 全局管理当前订阅的活跃币对、代币元数据（符号、精度、地址）、即时汇率与最新交易事件流。
   - 保证在“监听Swap”与“设置策略”（反买反卖/AI自动交易/价格增长）各标签页切换时状态无缝同步，消除割裂。
+- **`KeeperContext` (打工小号与免弹窗托管上下文)**:
+  - 管理专属本地 Keeper（打工小号 EOA）生命周期：本地随机私钥派生、安全导入/导出、Gas 燃料余额监控与低水位预警（< 0.003 BNB）。
+  - 链上绑定状态探测：通过 Multicall3 查询代理合约 `keepers(masterAddress)`，核验是否已完成 `setKeeper` 授权。
+  - 静默免弹窗执行开关（`isSilentEnabled`），控制策略触发时路由至 Keeper 本地离线签名还是外部钱包弹窗。
 - **`NotificationContext`**:
   - 全局异步交易通知与状态气泡，提供 `approving` -> `broadcasting` -> `pending` -> `success` / `failed` 全生命周期用户反馈，支持直接跳转 BscScan 区块浏览器查验。
 
@@ -91,13 +95,19 @@ flowchart TB
   - RPC 客户端具备自动多节点故障切换（Failover）与重试机制，保障在公共节点限流或波动时的超高可用性。
 
 ### 2.4 安全与策略执行引擎 (Security & Trading Engine)
-- **零本地私钥风险**: 用户资金完全受外部钱包助记词保护，DApp 仅通过标准 `eth_sendTransaction` 请求钱包签名。
+- **双钱包资产隔离与 Zero-Theft 绝对资金安全**:
+  - **主钱包 (Master EOA)**: 保留本金所有权，发起 `setKeeper` 与代币 `approve`。
+  - **打工小号 (Keeper EOA)**: 私钥保存在浏览器本地，仅消耗微量 BNB 作为 Gas 燃料代发交易，无任何代币提取或转移权限。
+  - **`UniswapV2ProxyTrader` 代理合约**: DEX Router 为不可变常量（`immutable`），代币兑换产物 100% 强制回流至主钱包（`to = user`），合约零沉淀代币（`Zero-Residual`）。即便打工小号私钥泄露，黑客也无法窃取主钱包任何资金。
 - **动态 Spender 授权**:
   - 直连交易模式下自动授权 PancakeSwap Router。
+  - Keeper 托管模式下自动将授权目标切换为 `UniswapV2ProxyTrader` 代理合约。
   - 启用自定义代理合约时自动将授权目标切换为用户指定的代理合约，杜绝权限错配导致的交易回滚。
 - **多维度防夹与防割保护**:
   - **Dry-Run 静态模拟**: 在真实交易前，通过 PancakeSwap Router 的 `getAmountsOut` 进行静态调用模拟，验证链上流动性与防貔貅机制。
   - **多精度归一化计算**: 基于代币实际精度（decimals）计算成交对价，使用 BigInt 与 `formatUnits` 精准换算，防止浮点截断。
   - **价格下限 (Price Floor) 拦截**: 模拟输出对价低于设定的价格下限时立即终止交易。
   - **滑点与扣税动态补偿**: 滑点保护自动将代币扣税比例纳入容差计算，避免有税代币因滑点过紧产生链上 Revert。
+  - **Fee-On-Transfer 代币支持**: 代理合约通过前后余额差量精确核算实际入账代币，杜绝扣税代币转账失败。
+
 

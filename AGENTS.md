@@ -13,6 +13,7 @@
 - 架构设计：[docs/AI/ARCHITECTURE.md](file:///ssd0/git/uniswap-v2-trader/docs/AI/ARCHITECTURE.md)
 - 重要决策：[docs/AI/DECISIONS.md](file:///ssd0/git/uniswap-v2-trader/docs/AI/DECISIONS.md)
 - SDK 底座维护记录：[docs/AI/SDK_CONTEXT.md](file:///ssd0/git/uniswap-v2-trader/docs/AI/SDK_CONTEXT.md)
+- 代理交易合约上下文：[docs/AI/CONTRACT_CONTEXT.md](file:///ssd0/git/uniswap-v2-trader/docs/AI/CONTRACT_CONTEXT.md)
 - 具体任务详情：`docs/AI/tasks/TASK-xxx.md`
 
 ---

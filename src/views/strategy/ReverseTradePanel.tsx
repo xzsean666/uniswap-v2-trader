@@ -31,7 +31,10 @@ import {
   dispatchSwapTransaction,
   waitForTransactionReceipt,
 } from "../../services/trading/trade-dispatcher";
+import { executeKeeperSwap } from "../../services/trading/keeper-executor";
 import { CONTRACT_ADDRESSES } from "../../constants/contracts";
+import { useKeeper } from "../../context/KeeperContext";
+import { KeeperCard } from "../../components/keeper/KeeperCard";
 
 export interface ReverseTradePanelProps {
   pairAddress?: string;
@@ -60,8 +63,15 @@ export const ReverseTradePanel: React.FC<ReverseTradePanelProps> = ({
   currentPrice = 0.99365,
   customProxy,
 }) => {
-  const { address, provider, isConnected, isBscTestnet } = useWallet();
+  const { address, provider, isConnected, isBscTestnet, chainId } = useWallet();
   const { showNotification } = useNotification();
+  const {
+    keeper,
+    isBoundToCurrentProxy,
+    isSilentEnabled,
+    proxyAddress,
+    refreshBalance,
+  } = useKeeper();
   const [isExecuting, setIsExecuting] = useState<"buy" | "sell" | null>(null);
 
   const [config, setConfig] = useState<AutoTradeConfig>(() =>
@@ -123,10 +133,16 @@ export const ReverseTradePanel: React.FC<ReverseTradePanelProps> = ({
     const decimalsIn = side === "buy" ? token1Decimals : token0Decimals;
     const decimalsOut = side === "buy" ? token0Decimals : token1Decimals;
 
-    // Spender determination: if custom proxy is active, approve custom proxy contract; otherwise PancakeSwap Router
+    // Determine if Keeper silent mode is fully active
+    const isKeeperMode = isSilentEnabled && !!keeper && isBoundToCurrentProxy;
+
+    // Spender determination: if custom proxy is active, approve custom proxy contract;
+    // otherwise if keeper silent mode is enabled, approve proxyAddress; otherwise PancakeSwap Router
     const spender =
       customProxy?.enabled && customProxy.contractAddress
         ? (customProxy.contractAddress as Address)
+        : isKeeperMode
+        ? proxyAddress
         : CONTRACT_ADDRESSES.PANCAKE_ROUTER;
 
     // Dynamic slippage: incorporates tax rate if tax deduction is active
@@ -165,7 +181,13 @@ export const ReverseTradePanel: React.FC<ReverseTradePanelProps> = ({
       showNotification({
         status: "approving",
         title: `检查 ${symbolIn} 授权...`,
-        message: `向 ${spender === CONTRACT_ADDRESSES.PANCAKE_ROUTER ? "PancakeSwap 路由" : "自定义代理合约"} 检查额度`,
+        message: `向 ${
+          spender === CONTRACT_ADDRESSES.PANCAKE_ROUTER
+            ? "PancakeSwap 路由"
+            : spender === proxyAddress
+            ? "Keeper 代理交易合约"
+            : "自定义代理合约"
+        } 检查额度`,
       });
 
       const amountInBigInt = parseUnits(tradeAmount.toString(), decimalsIn);
@@ -187,48 +209,82 @@ export const ReverseTradePanel: React.FC<ReverseTradePanelProps> = ({
         await waitForTransactionReceipt(approveRes.txHash, 30000, 2000);
       }
 
-      showNotification({
-        status: "broadcasting",
-        title: `正在发起 ${side === "buy" ? "反向买入" : "反向卖出"} 交易签名...`,
-        message: "请在钱包插件中确认签名交易",
-      });
-
       const expectedOut = simResult.expectedAmountOut || amountInBigInt;
-      const swapRes = await dispatchSwapTransaction(provider, {
-        side,
-        tokenIn,
-        tokenOut,
-        amountIn: amountInBigInt,
-        expectedAmountOut: expectedOut,
-        slippagePercent: totalSlippage,
-        recipient: address as Address,
-        customProxy:
-          customProxy?.enabled && customProxy.contractAddress
-            ? customProxy
-            : undefined,
-      });
+      let swapTxHash: `0x${string}`;
+
+      if (isKeeperMode && keeper) {
+        showNotification({
+          status: "broadcasting",
+          title: `打工小号 (Keeper) 正在免弹窗静默签名...`,
+          message: `由专属 Keeper 代发交易，资产全额回流主钱包`,
+        });
+
+        const keeperRes = await executeKeeperSwap({
+          keeperPrivateKey: keeper.privateKey,
+          proxyAddress,
+          userAddress: address as Address,
+          tokenIn,
+          tokenOut,
+          amountIn: amountInBigInt,
+          expectedAmountOut: expectedOut,
+          slippagePercent: totalSlippage,
+          isFeeOnTransfer: sideConfig.taxActive,
+          chainId: chainId ?? 97,
+        });
+
+        swapTxHash = keeperRes.txHash;
+      } else {
+        showNotification({
+          status: "broadcasting",
+          title: `正在发起 ${side === "buy" ? "反向买入" : "反向卖出"} 交易签名...`,
+          message: "请在钱包插件中确认签名交易",
+        });
+
+        const swapRes = await dispatchSwapTransaction(provider, {
+          side,
+          tokenIn,
+          tokenOut,
+          amountIn: amountInBigInt,
+          expectedAmountOut: expectedOut,
+          slippagePercent: totalSlippage,
+          recipient: address as Address,
+          customProxy:
+            customProxy?.enabled && customProxy.contractAddress
+              ? customProxy
+              : undefined,
+        });
+
+        swapTxHash = swapRes.txHash;
+      }
 
       showNotification({
         status: "pending",
-        title: `Swap 交易已广播至 BSC 测试网`,
+        title: `Swap 交易已广播至网络`,
         message: "正在等待区块节点打包确认...",
-        txHash: swapRes.txHash,
+        txHash: swapTxHash,
       });
 
-      const receipt = await waitForTransactionReceipt(swapRes.txHash, 60000, 2000);
+      const receipt = await waitForTransactionReceipt(swapTxHash, 60000, 2000);
+
+      if (isKeeperMode) {
+        refreshBalance();
+      }
+
       if (receipt.status === "success") {
         showNotification({
           status: "success",
           title: `${side === "buy" ? "反向买入" : "反向卖出"} 交易已确认！`,
-          message: `交易成功打包于区块 #${receipt.blockNumber.toString()}`,
-          txHash: swapRes.txHash,
+          message: `交易成功打包于区块 #${receipt.blockNumber.toString()}${
+            isKeeperMode ? " (Keeper 免弹窗静默成交)" : ""
+          }`,
+          txHash: swapTxHash,
         });
       } else {
         showNotification({
           status: "failed",
           title: "交易链上执行回滚 (Reverted)",
           message: "交易执行失败，请检查滑点或资金余额",
-          txHash: swapRes.txHash,
+          txHash: swapTxHash,
         });
       }
     } catch (err: any) {
@@ -251,6 +307,9 @@ export const ReverseTradePanel: React.FC<ReverseTradePanelProps> = ({
           <span>{toastMessage}</span>
         </div>
       )}
+
+      {/* Dedicated Keeper Automated Custody Card */}
+      <KeeperCard />
 
       {/* Buy Settings Card */}
       <CyberCard className="space-y-4 border-cyber-border">

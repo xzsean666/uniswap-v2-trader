@@ -57,4 +57,15 @@
 - `pnpm run build`
 
 ## Status
-PENDING_EXTERNAL_DEPENDENCY (等待代理合约开发与部署完成)
+DONE
+
+## Deliverables Summary
+1. `docs/AI/CONTRACT_CONTEXT.md`: 完整编写代理交易合约架构、Zero-Theft 公理、ABI 签名与本地 Hardhat (31337) 联调手册。
+2. `src/contracts/proxy-trader.ts`: 代理合约 ABI、网络地址映射表 (31337: `0xe7f1725e7734ce288f8367e1bb143e90bb3f0512`, 97: BSC Testnet) 与链上绑定方法 (`setKeeper`, `removeKeeper`, `getBoundKeeper`)。
+3. `src/services/trading/keeper-manager.ts`: 打工小号 (Keeper) 随机私钥派生、内存/浏览器持久化存储、私钥安全导入/导出、Gas 余额监控与低 Gas 告警 (< 0.003 BNB) 及一键充值。
+4. `src/services/trading/keeper-executor.ts`: Keeper 免弹窗静默交易执行器，支持标准 `executeSwap` 与扣税代币 `executeSwapSupportingFeeOnTransferTokens`，严格保证本金资产 100% 强制回流主钱包。
+5. `src/context/KeeperContext.tsx`: 全局 Keeper 状态上下文，整合钱包状态、代理地址与静默开关。
+6. `src/components/keeper/KeeperCard.tsx`: 暗色科技感 UI 卡片，提供生成/导入/导出/充值/绑定与静默开关。
+7. 策略面板整合: 在 `ReverseTradePanel.tsx` 与 `AutoTradePanel.tsx` 挂载 `KeeperCard`，并在交易触发时优先走 Keeper 静默执行。
+8. 单元测试: `tests/unit/contracts/proxy-trader.test.ts`、`tests/unit/trading/keeper-manager.test.ts`、`tests/unit/trading/keeper-executor.test.ts` 与 `tests/unit/components/keeper-card.test.ts`，全量 23 个测试套件 105 个用例全部 PASS。
+

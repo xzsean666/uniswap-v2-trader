@@ -21,6 +21,7 @@ import {
   type TradeSideConfig,
 } from "../../strategies/auto-trade-types";
 import { StrategyStore } from "../../strategies/strategy-store";
+import { KeeperCard } from "../../components/keeper/KeeperCard";
 
 export interface AutoTradePanelProps {
   pairAddress?: string;
@@ -67,6 +68,9 @@ export const AutoTradePanel: React.FC<AutoTradePanelProps> = ({
           <span>AI 自动交易配置已成功保存并立即生效！</span>
         </div>
       )}
+
+      {/* Dedicated Keeper Automated Custody Card */}
+      <KeeperCard />
 
       {/* Buy Settings Card */}
       <CyberCard className="space-y-4 border-cyber-border">

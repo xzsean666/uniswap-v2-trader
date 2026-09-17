@@ -9,7 +9,9 @@
     "preview": "vite preview",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:local": "bash scripts/test-local-integration.sh",
+    "node:local": "bash scripts/start-local-node.sh"
   },
   "dependencies": {
     "@evm-event-lake/node-sdk": "github:xzsean666/EVMEventLake-Node-SDK#d614d8c12c9ac7bbe0a1bb08053258ea5a0c357d",

@@ -4,6 +4,7 @@ import { App } from "./App";
 import { WalletProvider } from "./wallet/WalletContext";
 import { NotificationProvider } from "./components/notification/NotificationContext";
 import { ActivePairProvider } from "./context/ActivePairContext";
+import { KeeperProvider } from "./context/KeeperContext";
 import "./index.css";
 
 const rootElement = document.getElementById("root");
@@ -16,7 +17,9 @@ ReactDOM.createRoot(rootElement).render(
     <WalletProvider>
       <NotificationProvider>
         <ActivePairProvider>
-          <App />
+          <KeeperProvider>
+            <App />
+          </KeeperProvider>
         </ActivePairProvider>
       </NotificationProvider>
     </WalletProvider>

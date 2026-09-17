@@ -23,7 +23,7 @@ describe("IndexedDB Storage & SubscriptionStore (TASK-006)", () => {
   });
 
   it("exports correct database configuration", () => {
-    expect(DATABASE_NAME).toBe("uniswap_v2_trader");
+    expect(DATABASE_NAME).toBe("uniswap_v2_trader_app");
     expect(DATABASE_URL).toBe("indexeddb://uniswap_v2_trader");
   });
 

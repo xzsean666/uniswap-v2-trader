@@ -66,7 +66,7 @@
 | 网络 | Chain ID | 合约地址 | 对应 Router |
 | :--- | :---: | :--- | :--- |
 | **Hardhat Localhost** | `31337` | `0xe7f1725e7734ce288f8367e1bb143e90bb3f0512` | `0x5fbdb2315678afecb367f032d93f642f64180aa3` (MockRouter) |
-| **BSC Testnet** | `97` | 预设/可配置 | `0xD99D1c33F9fC3444f8101754aBC46c52416550D1` (PancakeSwap V2 Router) |
+| **BSC Testnet** | `97` | `0x3c43ac2680e9a4fc387a31ea47f9a88eee8b1b13` | `0xD99D1c33F9fC3444f8101754aBC46c52416550D1` (PancakeSwap V2 Router) |
 | **BSC Mainnet** | `56` | 待生产部署 | `0x10ED43C718714eb63d5aA57B78B54704E256024E` |
 
 ---

@@ -14,6 +14,8 @@ export interface ApprovalStatus {
   requiredAmount: bigint;
 }
 
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+
 /**
  * Check allowance of an ERC-20 token for a spender via Multicall
  */
@@ -25,6 +27,10 @@ export async function checkAllowance(
   const normOwner = getAddress(owner);
   const normSpender = getAddress(spender);
   const normToken = getAddress(tokenAddress);
+
+  if (normSpender === ZERO_ADDRESS) {
+    throw new Error("授权目标 (Spender) 不能为零地址");
+  }
 
   const results = await multicallRead([
     {
@@ -72,6 +78,10 @@ export async function approveToken(
   const normOwner = getAddress(owner);
   const normSpender = getAddress(spender);
   const normToken = getAddress(tokenAddress);
+
+  if (normSpender === ZERO_ADDRESS) {
+    throw new Error("授权目标 (Spender) 不能为零地址");
+  }
 
   const data = encodeFunctionData({
     abi: ERC20_ABI,

@@ -14,7 +14,7 @@
     "node:local": "bash scripts/start-local-node.sh"
   },
   "dependencies": {
-    "@evm-event-lake/node-sdk": "github:xzsean666/EVMEventLake-Node-SDK#d614d8c12c9ac7bbe0a1bb08053258ea5a0c357d",
+    "@evm-event-lake/node-sdk": "github:xzsean666/EVMEventLake-Node-SDK#1d92284e6d145c4e9a5f303dfab5d42785639be9",
     "clsx": "^2.1.1",
     "lucide-react": "^1.16.0",
     "react": "^19.0.0",
@@ -29,8 +29,10 @@
     "@vitejs/plugin-react": "^4.3.4",
     "autoprefixer": "^10.4.20",
     "fake-indexeddb": "^6.2.5",
+    "playwright": "^1.63.0",
     "postcss": "^8.5.3",
     "tailwindcss": "^3.4.17",
+    "tsx": "^4.23.13",
     "typescript": "^5.7.3",
     "vite": "^6.2.0",
     "vitest": "^3.0.7"

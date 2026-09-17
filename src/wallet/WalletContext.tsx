@@ -17,6 +17,7 @@ import {
   saveAuthSession,
   signLoginMessage,
   verifySignature,
+  validateSessionTamperProof,
   type AuthSession,
 } from "./auth";
 
@@ -58,17 +59,72 @@ export const WalletProvider: React.FC<WalletProviderProps> = ({
   const [authSession, setAuthSession] = useState<AuthSession | null>(null);
   const [error, setError] = useState<string | null>(null);
 
-  // Initialize provider & check stored auth session
+  // Initialize provider & cryptographically verify stored auth session
   useEffect(() => {
-    const injected = initialProvider || getInjectedProvider();
-    if (injected) {
-      setProvider(injected);
+    let cancelled = false;
+
+    async function initSessionAndAccounts() {
+      const injected = initialProvider || getInjectedProvider();
+      if (injected) {
+        setProvider(injected);
+        try {
+          const currentChain = await getProviderChainId(injected);
+          if (!cancelled) setChainId(currentChain);
+        } catch {
+          // ignore transient failure
+        }
+      }
+
+      const saved = loadAuthSession();
+      if (saved) {
+        // Verify signature to prevent localStorage tampering
+        const isValid = await validateSessionTamperProof(saved);
+        if (!isValid) {
+          clearAuthSession();
+          if (!cancelled) {
+            setAuthSession(null);
+          }
+          return;
+        }
+
+        // If provider is available, check if active account matches
+        if (injected) {
+          try {
+            const accounts = (await injected.request({ method: "eth_accounts" })) as string[];
+            if (accounts && accounts.length > 0) {
+              const activeAddr = accounts[0].toLowerCase();
+              if (activeAddr === saved.address.toLowerCase()) {
+                if (!cancelled) {
+                  setAuthSession(saved);
+                  setAddress(saved.address);
+                }
+              } else {
+                // User switched account in wallet extension
+                clearAuthSession();
+                if (!cancelled) {
+                  setAddress(activeAddr);
+                  setAuthSession(null);
+                }
+              }
+              return;
+            }
+          } catch {
+            // ignore
+          }
+        }
+
+        if (!cancelled) {
+          setAuthSession(saved);
+          setAddress(saved.address);
+        }
+      }
     }
-    const saved = loadAuthSession();
-    if (saved) {
-      setAuthSession(saved);
-      setAddress(saved.address);
-    }
+
+    initSessionAndAccounts();
+
+    return () => {
+      cancelled = true;
+    };
   }, [initialProvider]);
 
   // Listen for accountsChanged and chainChanged

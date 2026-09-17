@@ -153,3 +153,22 @@ export function clearAuthSession(): void {
   storage.removeItem(AUTH_SESSION_STORAGE_KEY);
 }
 
+/**
+ * Cryptographically validate that a restored session hasn't been tampered with
+ * and has not exceeded maximum valid duration (24 hours).
+ */
+export async function validateSessionTamperProof(session: AuthSession | null): Promise<boolean> {
+  if (!session || !session.address || !session.signature || !session.message) {
+    return false;
+  }
+  const isExpired = Date.now() - session.timestamp > 24 * 60 * 60 * 1000;
+  if (isExpired) {
+    return false;
+  }
+  return await verifySignature({
+    address: session.address,
+    message: session.message,
+    signature: session.signature,
+  });
+}
+

@@ -1,5 +1,6 @@
 allowBuilds:
-  "@evm-event-lake/node-sdk@https://codeload.github.com/xzsean666/EVMEventLake-Node-SDK/tar.gz/d614d8c12c9ac7bbe0a1bb08053258ea5a0c357d": true
+  "@evm-event-lake/node-sdk@https://codeload.github.com/xzsean666/EVMEventLake-Node-SDK/tar.gz/1d92284e6d145c4e9a5f303dfab5d42785639be9": true
   "evm-call@https://codeload.github.com/xzsean666/evm-call/tar.gz/d7a5c16d2bcbda6255d05f1f5b745eac88f699c0": true
   better-sqlite3: true
   esbuild: true
+  '@evm-event-lake/node-sdk@https://codeload.github.com/xzsean666/EVMEventLake-Node-SDK/tar.gz/d614d8c12c9ac7bbe0a1bb08053258ea5a0c357d': true

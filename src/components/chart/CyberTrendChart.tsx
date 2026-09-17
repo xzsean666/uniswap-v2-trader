@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useMemo } from "react";
 
 export interface ChartDataPoint {
   timestamp: number;
@@ -29,7 +29,53 @@ export const CyberTrendChart: React.FC<CyberTrendChartProps> = ({
 }) => {
   const [hoveredPoint, setHoveredPoint] = useState<ChartDataPoint | null>(null);
 
-  if (data.length < 2) {
+  const chartMath = useMemo(() => {
+    if (data.length < 2) return null;
+
+    // Calculate min, max with 5% padding
+    const prices = data.map((d) => d.price);
+    let minPrice = Math.min(...prices);
+    let maxPrice = Math.max(...prices);
+
+    if (minPrice === maxPrice) {
+      minPrice *= 0.95;
+      maxPrice *= 1.05;
+    } else {
+      const range = maxPrice - minPrice;
+      minPrice = Math.max(0, minPrice - range * 0.05);
+      maxPrice = maxPrice + range * 0.05;
+    }
+
+    const width = 500;
+    const paddingX = 20;
+    const paddingY = 20;
+    const chartWidth = width - paddingX * 2;
+    const chartHeight = height - paddingY * 2;
+
+    // Map coordinates
+    const points = data.map((d, index) => {
+      const x = paddingX + (index / (data.length - 1)) * chartWidth;
+      const y =
+        paddingY +
+        chartHeight -
+        ((d.price - minPrice) / (maxPrice - minPrice)) * chartHeight;
+      return { x, y, data: d };
+    });
+
+    // Construct SVG path string
+    const linePath = points.reduce((acc, pt, idx) => {
+      return idx === 0 ? `M ${pt.x},${pt.y}` : `${acc} L ${pt.x},${pt.y}`;
+    }, "");
+
+    // Construct Area closed path for gradient fill
+    const lastPoint = points[points.length - 1];
+    const firstPoint = points[0];
+    const areaPath = `${linePath} L ${lastPoint.x},${height - paddingY} L ${firstPoint.x},${height - paddingY} Z`;
+
+    return { points, linePath, areaPath, width, paddingX, paddingY, chartHeight };
+  }, [data, height]);
+
+  if (!chartMath) {
     return (
       <div
         className="flex items-center justify-center text-xs text-cyber-textMuted border border-dashed border-slate-800 rounded-xl"
@@ -40,45 +86,7 @@ export const CyberTrendChart: React.FC<CyberTrendChartProps> = ({
     );
   }
 
-  // Calculate min, max with 5% padding
-  const prices = data.map((d) => d.price);
-  let minPrice = Math.min(...prices);
-  let maxPrice = Math.max(...prices);
-
-  if (minPrice === maxPrice) {
-    minPrice *= 0.95;
-    maxPrice *= 1.05;
-  } else {
-    const range = maxPrice - minPrice;
-    minPrice = Math.max(0, minPrice - range * 0.05);
-    maxPrice = maxPrice + range * 0.05;
-  }
-
-  const width = 500;
-  const paddingX = 20;
-  const paddingY = 20;
-  const chartWidth = width - paddingX * 2;
-  const chartHeight = height - paddingY * 2;
-
-  // Map coordinates
-  const points = data.map((d, index) => {
-    const x = paddingX + (index / (data.length - 1)) * chartWidth;
-    const y =
-      paddingY +
-      chartHeight -
-      ((d.price - minPrice) / (maxPrice - minPrice)) * chartHeight;
-    return { x, y, data: d };
-  });
-
-  // Construct SVG path string
-  const linePath = points.reduce((acc, pt, idx) => {
-    return idx === 0 ? `M ${pt.x},${pt.y}` : `${acc} L ${pt.x},${pt.y}`;
-  }, "");
-
-  // Construct Area closed path for gradient fill
-  const lastPoint = points[points.length - 1];
-  const firstPoint = points[0];
-  const areaPath = `${linePath} L ${lastPoint.x},${height - paddingY} L ${firstPoint.x},${height - paddingY} Z`;
+  const { points, linePath, areaPath, width, paddingX, paddingY, chartHeight } = chartMath;
 
   return (
     <div className="relative w-full select-none">

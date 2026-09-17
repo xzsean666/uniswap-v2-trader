@@ -11,6 +11,7 @@ import { multicallRead } from "../../evm/multicall";
 import { ERC20_ABI } from "../../abi/pancake";
 import { syncEvents } from "../../services/sync/event-emitter";
 import { formatAddress } from "../../wallet/ethereum";
+import { useWallet } from "../../wallet/WalletContext";
 
 export interface SwapInfoViewProps {
   pairAddress: Address;
@@ -23,6 +24,9 @@ export const SwapInfoView: React.FC<SwapInfoViewProps> = ({
   initialOverview,
   userAddress,
 }) => {
+  const { address: walletAddress } = useWallet();
+  const effectiveUserAddress = userAddress || walletAddress;
+
   const [overview, setOverview] = useState<PairOverview | null>(
     initialOverview ?? null
   );
@@ -39,19 +43,19 @@ export const SwapInfoView: React.FC<SwapInfoViewProps> = ({
       setLastUpdated(Date.now());
 
       // If user wallet is connected, query user balances
-      if (userAddress) {
+      if (effectiveUserAddress) {
         const balanceCalls = [
           {
             target: latest.token0.address,
             abi: ERC20_ABI,
             functionName: "balanceOf",
-            args: [userAddress as Address],
+            args: [effectiveUserAddress as Address],
           },
           {
             target: latest.token1.address,
             abi: ERC20_ABI,
             functionName: "balanceOf",
-            args: [userAddress as Address],
+            args: [effectiveUserAddress as Address],
           },
         ];
 
@@ -72,7 +76,7 @@ export const SwapInfoView: React.FC<SwapInfoViewProps> = ({
     } finally {
       setIsRefreshing(false);
     }
-  }, [pairAddress, userAddress]);
+  }, [pairAddress, effectiveUserAddress]);
 
   useEffect(() => {
     refreshData();

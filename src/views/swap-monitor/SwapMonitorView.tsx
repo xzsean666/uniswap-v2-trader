@@ -1,5 +1,5 @@
-import React, { useCallback } from "react";
-import { Radio, Loader2, Play, Square } from "lucide-react";
+import React, { useCallback, useState } from "react";
+import { Radio, Loader2, Play, Square, Flame, Bookmark, Plus, ExternalLink, Trash2 } from "lucide-react";
 import { CyberCard } from "../../components/ui/CyberCard";
 import { CyberButton } from "../../components/ui/CyberButton";
 import { CyberStepper } from "../../components/ui/CyberStepper";
@@ -8,8 +8,13 @@ import { RecentEventsTable } from "./RecentEventsTable";
 import { SwapInfoView } from "../swap-info/SwapInfoView";
 import { PriceTrendView } from "../price-trend/PriceTrendView";
 import { useActivePair } from "../../context/ActivePairContext";
+import { useWallet } from "../../wallet/WalletContext";
+import { getPresetPairs } from "../../services/pair/pair-resolver";
+import { AddPairModal } from "../../components/pair-selector/AddPairModal";
+import { getBscScanAddressUrl } from "../../wallet/ethereum";
 
 export const SwapMonitorView: React.FC = () => {
+  const { chainId } = useWallet();
   const {
     pairAddressInput,
     setPairAddressInput,
@@ -24,9 +29,15 @@ export const SwapMonitorView: React.FC = () => {
     recentEvents,
     customContract,
     setCustomContract,
+    subscriptions,
+    removeSubscription,
+    selectPair,
     startListening,
     stopListening,
   } = useActivePair();
+
+  const [isAddModalOpen, setIsAddModalOpen] = useState(false);
+  const presetPairs = getPresetPairs(chainId ?? undefined);
 
   const handleStartListening = useCallback(async () => {
     try {
@@ -54,6 +65,11 @@ export const SwapMonitorView: React.FC = () => {
               <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
               <span>监听中</span>
             </span>
+          ) : isSyncing ? (
+            <span className="text-xs px-2 py-0.5 rounded bg-cyan-500/10 text-cyber-cyan font-mono border border-cyan-500/30 flex items-center space-x-1">
+              <span className="w-1.5 h-1.5 rounded-full bg-cyber-cyan animate-ping" />
+              <span>同步中 ({syncProgress?.percent ?? 15}%)</span>
+            </span>
           ) : (
             <span className="text-xs px-2 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">
               未开启监听
@@ -61,22 +77,146 @@ export const SwapMonitorView: React.FC = () => {
           )}
         </div>
 
+        {/* Pair Presets & Watchlist Section */}
+        <div className="space-y-3 pt-1">
+          {/* Popular Curated Pairs */}
+          <div className="space-y-1.5">
+            <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center space-x-1.5 text-amber-400 font-medium">
+                <Flame className="w-3.5 h-3.5" />
+                <span>Pancake 热门推荐</span>
+              </div>
+              <span className="text-[11px] text-slate-400 font-mono">
+                {chainId === 56 ? "BSC Mainnet" : "BSC Testnet"}
+              </span>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              {presetPairs.map((p) => {
+                const isSelected =
+                  pairAddressInput.toLowerCase() === p.pairAddress.toLowerCase();
+                return (
+                  <button
+                    key={p.pairAddress}
+                    type="button"
+                    onClick={() => selectPair(p.pairAddress)}
+                    className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border transition-all ${
+                      isSelected
+                        ? "bg-cyber-cyan/15 border-cyber-cyan text-white shadow-sm shadow-cyan-500/20"
+                        : "bg-cyber-cardInner/90 border-slate-700/60 text-slate-300 hover:border-slate-500 hover:text-white"
+                    }`}
+                  >
+                    <span>{p.label}</span>
+                    {p.tag && (
+                      <span className="text-[10px] px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300 border border-amber-500/30">
+                        {p.tag}
+                      </span>
+                    )}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* User Custom Watchlist */}
+          <div className="space-y-1.5 pt-1">
+            <div className="flex items-center justify-between text-xs">
+              <div className="flex items-center space-x-1.5 text-cyber-cyan font-medium">
+                <Bookmark className="w-3.5 h-3.5" />
+                <span>我的自选币对</span>
+                <span className="text-[11px] text-slate-500">
+                  ({subscriptions.length})
+                </span>
+              </div>
+              <button
+                type="button"
+                onClick={() => setIsAddModalOpen(true)}
+                className="flex items-center space-x-1 text-cyber-cyan hover:text-cyan-300 text-xs font-medium hover:underline"
+              >
+                <Plus className="w-3.5 h-3.5" />
+                <span>添加币对</span>
+              </button>
+            </div>
+
+            {subscriptions.length > 0 ? (
+              <div className="flex flex-wrap gap-2">
+                {subscriptions.map((sub) => {
+                  const isSelected =
+                    pairAddressInput.toLowerCase() === sub.pairAddress.toLowerCase();
+                  return (
+                    <div
+                      key={sub.pairAddress}
+                      className={`group flex items-center space-x-1.5 px-2.5 py-1.5 rounded-xl text-xs border transition-all ${
+                        isSelected
+                          ? "bg-cyber-cyan/15 border-cyber-cyan text-white shadow-sm shadow-cyan-500/20"
+                          : "bg-cyber-cardInner/90 border-slate-700/60 text-slate-300 hover:border-slate-500 hover:text-white"
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => selectPair(sub.pairAddress)}
+                        className="font-medium"
+                      >
+                        {sub.token0Symbol} / {sub.token1Symbol}
+                      </button>
+                      <button
+                        type="button"
+                        title="从自选中移除"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          removeSubscription(sub.pairAddress);
+                        }}
+                        className="text-slate-500 hover:text-rose-400 p-0.5 rounded transition-colors"
+                      >
+                        <Trash2 className="w-3 h-3" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : (
+              <div className="py-2 px-3 rounded-xl bg-cyber-cardInner/40 border border-slate-800/80 text-[11px] text-slate-400 flex items-center justify-between">
+                <span>暂无自选币对，可点击右上角「添加币对」按代币查找或直接填 LP</span>
+                <button
+                  type="button"
+                  onClick={() => setIsAddModalOpen(true)}
+                  className="text-cyber-cyan hover:underline ml-2 shrink-0 font-medium"
+                >
+                  立即添加
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+
         {/* Input Form */}
-        <div className="space-y-3 text-xs">
+        <div className="space-y-3 text-xs pt-1 border-t border-slate-800/80">
           <div>
             <div className="flex items-center justify-between mb-1.5">
               <label className="text-slate-300 font-medium">
-                输入 LP Pair 地址 <span className="text-rose-400">*</span>
+                当前监听 LP Pair 地址 <span className="text-rose-400">*</span>
               </label>
-              <button
-                type="button"
-                onClick={() =>
-                  setPairAddressInput("0x6725F303b657a9451d8BA641348b6761A6CC7a17")
-                }
-                className="text-cyber-cyan hover:underline text-[11px]"
-              >
-                使用示例地址
-              </button>
+              <div className="flex items-center space-x-2 text-[11px]">
+                {pairAddressInput && (
+                  <a
+                    href={getBscScanAddressUrl(pairAddressInput)}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-slate-400 hover:text-cyber-cyan flex items-center space-x-0.5"
+                  >
+                    <span>区块浏览器</span>
+                    <ExternalLink className="w-3 h-3" />
+                  </a>
+                )}
+                <button
+                  type="button"
+                  onClick={() =>
+                    setPairAddressInput("0xf03EBe5CD689FEdC9204aF66Cb3431750B89bc02")
+                  }
+                  className="text-cyber-cyan hover:underline"
+                >
+                  重置为官方测试池
+                </button>
+              </div>
             </div>
             <input
               type="text"
@@ -204,6 +344,12 @@ export const SwapMonitorView: React.FC = () => {
         token0Symbol={activePair?.token0.symbol}
         token1Symbol={activePair?.token1.symbol}
         maxDisplay={maxDisplayEvents}
+      />
+
+      {/* Add Pair Modal */}
+      <AddPairModal
+        isOpen={isAddModalOpen}
+        onClose={() => setIsAddModalOpen(false)}
       />
     </div>
   );

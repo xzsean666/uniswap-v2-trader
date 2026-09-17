@@ -22,6 +22,7 @@ import {
 } from "../../strategies/auto-trade-types";
 import { StrategyStore } from "../../strategies/strategy-store";
 import { KeeperCard } from "../../components/keeper/KeeperCard";
+import { useStrategyRunner } from "../../context/StrategyRunnerContext";
 
 export interface AutoTradePanelProps {
   pairAddress?: string;
@@ -36,6 +37,7 @@ export const AutoTradePanel: React.FC<AutoTradePanelProps> = ({
   token1Symbol = "USDT",
   currentPrice = 0.99365,
 }) => {
+  const { applyAndActivateStrategy } = useStrategyRunner();
   const [config, setConfig] = useState<AutoTradeConfig>(() =>
     StrategyStore.loadAutoTrade(pairAddress)
   );
@@ -54,7 +56,7 @@ export const AutoTradePanel: React.FC<AutoTradePanelProps> = ({
   };
 
   const handleApplySettings = () => {
-    StrategyStore.saveAutoTrade(config);
+    applyAndActivateStrategy(config, currentPrice);
     setSavedSuccess(true);
     setTimeout(() => setSavedSuccess(false), 2500);
   };

@@ -28,8 +28,8 @@ export const UNISWAP_V2_PROXY_TRADER_ABI = parseAbi([
 export const DEFAULT_PROXY_TRADER_ADDRESSES: Record<number, Address> = {
   // Hardhat local node default deterministic deployment
   31337: "0xe7f1725e7734ce288f8367e1bb143e90bb3f0512",
-  // BSC Testnet default
-  97: "0x3FaA39eD9Eb9375e8f495e86566eB990D4D3b378" as Address,
+  // BSC Testnet deployed proxy trader
+  97: "0x3c43ac2680e9a4fc387a31ea47f9a88eee8b1b13" as Address,
 };
 
 /**

@@ -133,6 +133,13 @@ export async function simulateTradeDryRun(
 
     const effectivePrice = normOut / normIn;
 
+    const formattedPrice =
+      effectivePrice >= 1
+        ? effectivePrice.toFixed(4)
+        : effectivePrice >= 0.0001
+        ? effectivePrice.toFixed(6)
+        : effectivePrice.toPrecision(4);
+
     // Verify against price floor
     if (params.priceFloor > 0 && effectivePrice < params.priceFloor) {
       return {
@@ -140,7 +147,7 @@ export async function simulateTradeDryRun(
         amountIn,
         expectedAmountOut: amountOut,
         effectivePrice,
-        reason: `模拟输出价格 (${effectivePrice.toFixed(4)}) 低于设定的价格下限 (${params.priceFloor})`,
+        reason: `模拟输出价格 (${formattedPrice}) 低于设定的价格下限 (${params.priceFloor})`,
       };
     }
 

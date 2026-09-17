@@ -2,7 +2,7 @@
  * Client IndexedDB Connection & Storage Infrastructure
  */
 
-export const DATABASE_NAME = "uniswap_v2_trader";
+export const DATABASE_NAME = "uniswap_v2_trader_app";
 export const DATABASE_URL = "indexeddb://uniswap_v2_trader";
 export const DB_VERSION = 1;
 
@@ -34,6 +34,10 @@ export function openIndexedDB(): Promise<IDBDatabase> {
 
     const request = idbFactory.open(DATABASE_NAME, DB_VERSION);
 
+    request.onblocked = () => {
+      console.warn("IndexedDB open request was blocked by another connection.");
+    };
+
     request.onupgradeneeded = (event) => {
       const db = (event.target as IDBOpenDBRequest).result;
       if (!db.objectStoreNames.contains(STORES.PAIR_SUBSCRIPTIONS)) {
@@ -47,6 +51,10 @@ export function openIndexedDB(): Promise<IDBDatabase> {
 
     request.onsuccess = (event) => {
       dbInstance = (event.target as IDBOpenDBRequest).result;
+      dbInstance.onversionchange = () => {
+        dbInstance?.close();
+        dbInstance = null;
+      };
       resolve(dbInstance);
     };
 

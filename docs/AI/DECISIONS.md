@@ -69,3 +69,26 @@
     - 动态 Spender 授权：直连交易授权 PancakeSwap Router，代理模式授权用户自定义代理合约。
     - 动态滑点计算自动将代币税率（`taxRate`）计入容差空间，彻底防止有税代币链上执行 Revert。
 
+## ADR-009: 全系统深度安全防篡改、多链 RPC 动态容灾与交易逻辑加固
+- **状态**: Accepted
+- **背景**: 2026-09-17 深度全项目审计中识别出以下关键风险：
+  1. **本地会话防篡改风险**: `WalletContext` 读取 localStorage 中的 AuthSession 未重新验证签名真伪，且未联动校验活跃插件钱包的 `eth_accounts`。
+  2. **Keeper 私钥内存与操作安全**: 私钥明文存储缺乏清除覆盖（zero-fill memory wipe），导出私钥缺乏显式安全警示。
+  3. **多链 RPC 路由错位**: RPC 客户端硬编码 BSC Testnet，导致切换主网 (56) 或本地节点 (31337) 时状态查询依然发送至测试网。
+  4. **交易致命回退缺陷**: 反向交易预估输出在缺失时回退为 `amountInBigInt`，在非 1:1 汇率或多精度代币兑换时会导致严重滑点穿仓或链上 Revert。
+  5. **事件流与 SVG 性能**: 轮询器缺少基于 `txHash:logIndex` 的滑动窗口去重；折线图 SVG 缺乏 `useMemo` 导致频繁重算。
+- **决策**:
+  - **安全加固**:
+    - 引入 `validateSessionTamperProof`，在会话恢复时进行密码学签名真伪校验；同步核验 provider `eth_accounts`，账户变更立即自失效旧会话。
+    - 强化私钥格式规范化（校验非零私钥 `normalizePrivateKey`），并在小号清除时执行内存置零擦除。
+    - 代币授权增加 `Spender` 零地址前置拦截。
+  - **多链 RPC 动态容灾**:
+    - 扩展 `contracts.ts` 与 `rpc-client.ts`，支持 BSC Testnet (97)、BSC Mainnet (56) 与 Localhost (31337) 的自动化 RPC 池解析与多端点指数退避 Failover。
+  - **交易与量化逻辑严格化**:
+    - 彻底移除 `expectedOut = simResult.expectedAmountOut || amountInBigInt` 危险回退，改为强制校验 `expectedAmountOut > 0n`，不足或无效时前置终止交易并向用户预警。
+    - 价格下限拦截提示引入动态自适应精度格式化，解决低单价代币截断显示为 0.0000 的体验问题。
+    - 为自动交易引擎互斥锁（`isInFlightRef`）增加 60 秒看门狗（Watchdog），防止异常网络中断引发死锁。
+  - **前端渲染与事件优化**:
+    - 在 `realtime-poller` 与 `ActivePairContext` 引入双层滑动窗口事件去重（LRU Set），消除重复日志广播与 React Key 警告。
+    - `CyberTrendChart` SVG 计算逻辑全面挂载 `useMemo`，消灭高频渲染掉帧。
+

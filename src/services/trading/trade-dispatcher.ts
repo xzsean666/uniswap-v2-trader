@@ -86,15 +86,20 @@ export function assembleSwapCalldata(
     const proxyAddress = getAddress(params.customProxy.contractAddress);
     const methodName = params.customProxy.methodName?.trim() || "swapExactTokensForTokens";
 
-    // Build dynamic or standard proxy ABI
+    // Build dynamic or standard proxy ABI based on method signature
+    const isExecuteSwapMethod = methodName === "executeSwap";
     const proxyAbi = parseAbi([
-      `function ${methodName}(uint256 amountIn, uint256 amountOutMin, address[] calldata path, address to, uint256 deadline) returns (uint256[] amounts)` as const,
+      isExecuteSwapMethod
+        ? (`function ${methodName}(address user, address[] calldata path, uint256 amountIn, uint256 amountOutMin, uint256 deadline) returns (uint256[] memory amounts)` as const)
+        : (`function ${methodName}(uint256 amountIn, uint256 amountOutMin, address[] calldata path, address to, uint256 deadline) returns (uint256[] amounts)` as const),
     ]);
 
     const data = encodeFunctionData({
       abi: proxyAbi,
       functionName: methodName as any,
-      args: [params.amountIn, amountOutMin, path, normRecipient, deadline],
+      args: isExecuteSwapMethod
+        ? [normRecipient, path, params.amountIn, amountOutMin, deadline]
+        : [params.amountIn, amountOutMin, path, normRecipient, deadline],
     });
 
     return {

@@ -15,11 +15,11 @@ import { SwapMonitorView } from "./views/swap-monitor/SwapMonitorView";
 import { AutoTradePanel } from "./views/strategy/AutoTradePanel";
 import { PriceGrowthPanel } from "./views/strategy/PriceGrowthPanel";
 import { ReverseTradePanel } from "./views/strategy/ReverseTradePanel";
-
+import { TestnetFaucetView } from "./views/faucet/TestnetFaucetView";
 
 import { useActivePair } from "./context/ActivePairContext";
 
-export type PrimaryTab = "monitor" | "strategy";
+export type PrimaryTab = "monitor" | "strategy" | "faucet";
 export type StrategySubTab = "reverse" | "auto" | "arbitrage";
 
 export const App: React.FC = () => {
@@ -184,10 +184,11 @@ export const App: React.FC = () => {
         <SegmentedTabs
           className="mb-3"
           activeId={primaryTab}
-          onChange={setPrimaryTab}
+          onChange={(id) => setPrimaryTab(id as PrimaryTab)}
           options={[
             { id: "monitor", label: "监听Swap" },
             { id: "strategy", label: "设置策略" },
+            { id: "faucet", label: "测试网水龙头" },
           ]}
         />
 
@@ -247,8 +248,18 @@ export const App: React.FC = () => {
             />
           )}
 
-
           {primaryTab === "monitor" && <SwapMonitorView />}
+
+          {primaryTab === "faucet" && (
+            <TestnetFaucetView
+              onNavigate={(tab, subTab) => {
+                setPrimaryTab(tab as PrimaryTab);
+                if (subTab) {
+                  setStrategySubTab(subTab as StrategySubTab);
+                }
+              }}
+            />
+          )}
 
         </main>
       </div>

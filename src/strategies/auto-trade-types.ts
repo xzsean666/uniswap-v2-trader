@@ -15,10 +15,25 @@ export interface TradeSideConfig {
   taxActive: boolean;
 }
 
+export interface AutoTradeExecutionRecord {
+  id: string;
+  timestamp: number;
+  pairAddress: string;
+  side: "buy" | "sell";
+  amount: number;
+  price: number;
+  reason: string;
+  txHash: `0x${string}`;
+  status: "success" | "failed";
+  error?: string;
+}
+
 export interface AutoTradeConfig {
   pairAddress: string;
   buy: TradeSideConfig;
   sell: TradeSideConfig;
+  basePrice?: number;
+  cooldownSeconds?: number; // default 30s
   updatedAt: number;
 }
 

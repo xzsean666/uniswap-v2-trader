@@ -50,12 +50,29 @@ export function formatAddress(address: string | null | undefined): string {
 }
 
 /**
- * Detect the injected Ethereum provider in the window object
+ * Detect the injected Ethereum provider in the window object.
+ * Supports multi-wallet environments (e.g. MetaMask + OKX Wallet) by prioritizing MetaMask.
  */
 export function getInjectedProvider(): EIP1193Provider | null {
   if (typeof window === "undefined") return null;
-  const ethereum = (window as unknown as { ethereum?: EIP1193Provider }).ethereum;
-  return ethereum || null;
+  const eth = (window as unknown as { ethereum?: any }).ethereum;
+  if (!eth) return null;
+
+  // Handle multi-wallet environments where window.ethereum.providers is populated
+  if (eth.providers && Array.isArray(eth.providers) && eth.providers.length > 0) {
+    const metamask = eth.providers.find((p: any) => p.isMetaMask);
+    return metamask || eth.providers[0];
+  }
+
+  return eth;
+}
+
+/**
+ * Check if the injected or active provider is specifically MetaMask
+ */
+export function isMetaMaskProvider(provider?: EIP1193Provider | null): boolean {
+  const target = provider ?? getInjectedProvider();
+  return Boolean((target as any)?.isMetaMask);
 }
 
 /**
@@ -96,4 +113,12 @@ export async function switchToBscTestnet(provider: EIP1193Provider): Promise<voi
       throw switchError;
     }
   }
+}
+
+export function getBscScanTxUrl(txHash: string): string {
+  return `https://testnet.bscscan.com/tx/${txHash}`;
+}
+
+export function getBscScanAddressUrl(address: string): string {
+  return `https://testnet.bscscan.com/address/${address}`;
 }

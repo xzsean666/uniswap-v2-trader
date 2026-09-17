@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import {
   Bot,
   Copy,
@@ -12,14 +12,19 @@ import {
   Trash2,
   Lock,
   ArrowRight,
+  Coins,
 } from "lucide-react";
+import type { Address } from "viem";
+import { formatEther } from "viem";
 import { CyberCard } from "../ui/CyberCard";
 import { CyberButton } from "../ui/CyberButton";
 import { CyberSwitch } from "../ui/CyberSwitch";
 import { useKeeper } from "../../context/KeeperContext";
 import { useWallet } from "../../wallet/WalletContext";
+import { useActivePair } from "../../context/ActivePairContext";
 import { useNotification } from "../notification/NotificationContext";
 import { waitForTransactionReceipt } from "../../services/trading/trade-dispatcher";
+import { checkAllowance, approveToken } from "../../services/trading/token-approval";
 
 export const KeeperCard: React.FC = () => {
   const {
@@ -40,7 +45,8 @@ export const KeeperCard: React.FC = () => {
     fundGas,
   } = useKeeper();
 
-  const { isConnected } = useWallet();
+  const { address, isConnected, provider } = useWallet();
+  const { activePair } = useActivePair();
   const { showNotification } = useNotification();
 
   const [copied, setCopied] = useState<"address" | "key" | null>(null);
@@ -50,6 +56,93 @@ export const KeeperCard: React.FC = () => {
   const [importError, setImportError] = useState<string | null>(null);
   const [isBindingLoading, setIsBindingLoading] = useState(false);
   const [isFundingLoading, setIsFundingLoading] = useState(false);
+
+  // Gas funding amount state & user balance
+  const [fundAmount, setFundAmount] = useState<string>("0.005");
+  const [userBnbBalance, setUserBnbBalance] = useState<string | null>(null);
+
+  const fetchUserBnbBalance = useCallback(async () => {
+    if (!address || !provider) return;
+    try {
+      const raw = (await provider.request({
+        method: "eth_getBalance",
+        params: [address, "latest"],
+      })) as string;
+      if (raw) {
+        setUserBnbBalance(parseFloat(formatEther(BigInt(raw))).toFixed(4));
+      }
+    } catch {
+      // ignore transient rpc failure
+    }
+  }, [address, provider]);
+
+  useEffect(() => {
+    fetchUserBnbBalance();
+  }, [fetchUserBnbBalance]);
+
+  // Token allowances to Proxy Trader contract
+  const [token0Allowance, setToken0Allowance] = useState<bigint | null>(null);
+  const [token1Allowance, setToken1Allowance] = useState<bigint | null>(null);
+  const [isApprovingToken, setIsApprovingToken] = useState<"token0" | "token1" | null>(null);
+
+  const fetchAllowances = useCallback(async () => {
+    if (!address || !proxyAddress || !activePair) return;
+    try {
+      const [allow0, allow1] = await Promise.all([
+        checkAllowance(address as Address, proxyAddress, activePair.token0.address as Address),
+        checkAllowance(address as Address, proxyAddress, activePair.token1.address as Address),
+      ]);
+      setToken0Allowance(allow0);
+      setToken1Allowance(allow1);
+    } catch {
+      // Ignore background check failure
+    }
+  }, [address, proxyAddress, activePair]);
+
+  useEffect(() => {
+    fetchAllowances();
+  }, [fetchAllowances]);
+
+  const handleApprove = async (targetToken: "token0" | "token1") => {
+    if (!provider || !address || !activePair) return;
+    const token = targetToken === "token0" ? activePair.token0 : activePair.token1;
+    setIsApprovingToken(targetToken);
+    try {
+      showNotification({
+        status: "broadcasting",
+        title: `正在发起 ${token.symbol} 授权...`,
+        message: `请在 MetaMask 中确认授权给代理合约 (${proxyAddress.slice(0, 6)}...${proxyAddress.slice(-4)})`,
+      });
+      const txHash = await approveToken(
+        provider,
+        address as Address,
+        proxyAddress,
+        token.address as Address
+      );
+      showNotification({
+        status: "pending",
+        title: `${token.symbol} 授权交易已广播`,
+        message: "正在等待区块节点打包确认...",
+        txHash,
+      });
+      await waitForTransactionReceipt(txHash, 30000, 2000);
+      showNotification({
+        status: "success",
+        title: `${token.symbol} 授权成功`,
+        message: `代理交易合约已获得 ${token.symbol} 扣款权限，可全自动静默执行交易！`,
+        txHash,
+      });
+      await fetchAllowances();
+    } catch (err: any) {
+      showNotification({
+        status: "failed",
+        title: `${token.symbol} 授权失败`,
+        message: err?.message || "用户取消或交易回滚",
+      });
+    } finally {
+      setIsApprovingToken(null);
+    }
+  };
 
   const handleCopy = (text: string, type: "address" | "key") => {
     navigator.clipboard.writeText(text);
@@ -128,7 +221,7 @@ export const KeeperCard: React.FC = () => {
     }
   };
 
-  const handleFundGas = async () => {
+  const handleFundGas = async (overrideAmount?: string) => {
     if (!isConnected) {
       showNotification({
         status: "failed",
@@ -137,15 +230,16 @@ export const KeeperCard: React.FC = () => {
       });
       return;
     }
+    const targetAmount = overrideAmount || fundAmount || "0.005";
     setIsFundingLoading(true);
     try {
       showNotification({
         status: "broadcasting",
         title: "正在发起 Gas 充值交易...",
-        message: "正在向打工小号转账 0.01 BNB",
+        message: `正在向打工小号转账 ${targetAmount} BNB`,
       });
 
-      const txHash = await fundGas("0.01");
+      const txHash = await fundGas(targetAmount);
 
       showNotification({
         status: "pending",
@@ -156,11 +250,11 @@ export const KeeperCard: React.FC = () => {
 
       const receipt = await waitForTransactionReceipt(txHash);
       if (receipt.status === "success") {
-        await refreshBalance();
+        await Promise.all([refreshBalance(), fetchUserBnbBalance()]);
         showNotification({
           status: "success",
           title: "Gas 充值成功",
-          message: "打工小号已获得 0.01 BNB 燃料",
+          message: `打工小号已获得 ${targetAmount} BNB 燃料`,
           txHash,
         });
       } else {
@@ -174,8 +268,8 @@ export const KeeperCard: React.FC = () => {
     } catch (err: any) {
       showNotification({
         status: "failed",
-        title: "充值失败",
-        message: err.message || "用户取消或网络错误",
+        title: "Gas 充值失败",
+        message: err?.message || "用户取消或转账失败",
       });
     } finally {
       setIsFundingLoading(false);
@@ -315,12 +409,12 @@ export const KeeperCard: React.FC = () => {
           </div>
 
           {/* Gas Balance & Funding */}
-          <div className="grid grid-cols-2 gap-2.5">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
             <div className="p-2.5 bg-slate-900/60 rounded-xl border border-slate-800 space-y-1">
               <div className="flex items-center justify-between">
                 <span className="text-slate-400 text-[11px] flex items-center space-x-1">
                   <Fuel className="w-3 h-3 text-amber-400" />
-                  <span>Gas 燃料余额</span>
+                  <span>打工小号 Gas 余额</span>
                 </span>
                 <button
                   type="button"
@@ -339,25 +433,74 @@ export const KeeperCard: React.FC = () => {
                 </span>
                 <span className="text-[10px] text-slate-400">BNB</span>
               </div>
-              {keeperBalance?.isLowGas && (
+              {keeperBalance?.isLowGas ? (
                 <div className="text-[10px] text-amber-400 flex items-center space-x-1">
                   <AlertTriangle className="w-2.5 h-2.5" />
-                  <span>燃料过低，请充值</span>
+                  <span>燃料偏低，自动交易可能失败</span>
+                </div>
+              ) : (
+                <div className="text-[10px] text-emerald-400 flex items-center space-x-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+                  <span>燃料充足，就绪静默执行</span>
                 </div>
               )}
             </div>
 
-            <div className="p-2.5 bg-slate-900/60 rounded-xl border border-slate-800 flex flex-col justify-between">
-              <div className="text-slate-400 text-[11px]">燃料补给 (主钱包划转)</div>
-              <CyberButton
-                variant="outline"
-                className="text-xs py-1 mt-1 border-amber-500/40 text-amber-300 hover:bg-amber-500/10"
-                loading={isFundingLoading}
-                onClick={handleFundGas}
-              >
-                <Fuel className="w-3 h-3 mr-1" />
-                <span>充值 0.01 BNB</span>
-              </CyberButton>
+            <div className="p-2.5 bg-slate-900/60 rounded-xl border border-slate-800 flex flex-col justify-between space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-slate-400 text-[11px]">快速补给燃料 (主钱包划转)</span>
+                {userBnbBalance && (
+                  <span className="text-[10px] text-slate-500 font-mono">
+                    主钱包: {userBnbBalance} BNB
+                  </span>
+                )}
+              </div>
+
+              {/* Preset buttons */}
+              <div className="flex items-center space-x-1.5">
+                {["0.002", "0.005", "0.01", "0.02"].map((preset) => (
+                  <button
+                    key={preset}
+                    type="button"
+                    onClick={() => setFundAmount(preset)}
+                    className={`px-2 py-0.5 rounded text-[11px] font-mono transition-colors ${
+                      fundAmount === preset
+                        ? "bg-amber-500/20 text-amber-300 border border-amber-500/50"
+                        : "bg-slate-800/80 text-slate-400 hover:text-slate-200 border border-slate-700/60"
+                    }`}
+                  >
+                    {preset}
+                  </button>
+                ))}
+              </div>
+
+              {/* Custom amount input + fund button */}
+              <div className="flex items-center space-x-2">
+                <div className="relative flex-1">
+                  <input
+                    type="number"
+                    step="0.001"
+                    min="0.001"
+                    value={fundAmount}
+                    onChange={(e) => setFundAmount(e.target.value)}
+                    className="w-full bg-slate-950 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-slate-200 font-mono focus:outline-none focus:border-amber-500/60 pr-10"
+                    placeholder="输入金额"
+                  />
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] text-slate-500 font-mono">
+                    BNB
+                  </span>
+                </div>
+                <CyberButton
+                  variant="outline"
+                  className="text-xs py-1 px-3 border-amber-500/40 text-amber-300 hover:bg-amber-500/10 shrink-0"
+                  loading={isFundingLoading}
+                  onClick={() => handleFundGas()}
+                  disabled={!fundAmount || parseFloat(fundAmount) <= 0}
+                >
+                  <Fuel className="w-3 h-3 mr-1" />
+                  <span>划转 {fundAmount || "0.005"}</span>
+                </CyberButton>
+              </div>
             </div>
           </div>
 
@@ -402,6 +545,89 @@ export const KeeperCard: React.FC = () => {
             )}
           </div>
 
+          {/* Proxy Contract Token Allowance (Approve) Status */}
+          <div className="p-2.5 bg-slate-900/60 rounded-xl border border-slate-800 space-y-2">
+            <div className="flex items-center justify-between">
+              <span className="text-slate-400 text-[11px] flex items-center space-x-1">
+                <Coins className="w-3.5 h-3.5 text-cyber-cyan" />
+                <span>代理合约代币授权 (Approve):</span>
+              </span>
+              <span className="text-[10px] text-slate-500 font-mono">
+                {`${proxyAddress.slice(0, 6)}...${proxyAddress.slice(-4)}`}
+              </span>
+            </div>
+
+            {activePair ? (
+              <div className="space-y-2 pt-0.5">
+                {/* Token 0 */}
+                <div className="flex items-center justify-between p-2 rounded-lg bg-black/40 border border-slate-800 text-[11px]">
+                  <div className="flex items-center space-x-1.5">
+                    <span className="font-bold text-slate-200">{activePair.token0.symbol}</span>
+                    {token0Allowance !== null && token0Allowance > 0n ? (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center space-x-0.5">
+                        <ShieldCheck className="w-2.5 h-2.5" />
+                        <span>已授权</span>
+                      </span>
+                    ) : (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30 flex items-center space-x-0.5">
+                        <AlertTriangle className="w-2.5 h-2.5" />
+                        <span>未授权</span>
+                      </span>
+                    )}
+                  </div>
+
+                  {(!token0Allowance || token0Allowance === 0n) && (
+                    <CyberButton
+                      variant="cyan"
+                      className="text-[10px] py-1 px-2.5"
+                      loading={isApprovingToken === "token0"}
+                      onClick={() => handleApprove("token0")}
+                    >
+                      <span>一键授权 {activePair.token0.symbol}</span>
+                    </CyberButton>
+                  )}
+                </div>
+
+                {/* Token 1 */}
+                <div className="flex items-center justify-between p-2 rounded-lg bg-black/40 border border-slate-800 text-[11px]">
+                  <div className="flex items-center space-x-1.5">
+                    <span className="font-bold text-slate-200">{activePair.token1.symbol}</span>
+                    {token1Allowance !== null && token1Allowance > 0n ? (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-emerald-500/15 text-emerald-400 border border-emerald-500/30 flex items-center space-x-0.5">
+                        <ShieldCheck className="w-2.5 h-2.5" />
+                        <span>已授权</span>
+                      </span>
+                    ) : (
+                      <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-400 border border-amber-500/30 flex items-center space-x-0.5">
+                        <AlertTriangle className="w-2.5 h-2.5" />
+                        <span>未授权</span>
+                      </span>
+                    )}
+                  </div>
+
+                  {(!token1Allowance || token1Allowance === 0n) && (
+                    <CyberButton
+                      variant="cyan"
+                      className="text-[10px] py-1 px-2.5"
+                      loading={isApprovingToken === "token1"}
+                      onClick={() => handleApprove("token1")}
+                    >
+                      <span>一键授权 {activePair.token1.symbol}</span>
+                    </CyberButton>
+                  )}
+                </div>
+
+                <p className="text-[10px] text-slate-400 leading-tight">
+                  💡 提示: 自动量化交易与 Keeper 静默交易需预先向代理合约授予代币额度，打工小号触发兑换时方可成功扣款。
+                </p>
+              </div>
+            ) : (
+              <div className="text-[11px] text-slate-500">
+                请先在监控面板载入币对以检查代币授权状态。
+              </div>
+            )}
+          </div>
+
           {/* Private Key Export / Danger Zone */}
           <div className="pt-1 flex items-center justify-between text-[11px]">
             <button
@@ -433,10 +659,10 @@ export const KeeperCard: React.FC = () => {
           </div>
 
           {showPrivateKey && (
-            <div className="p-2.5 bg-rose-950/20 border border-rose-500/40 rounded-xl space-y-1.5 text-xs">
+            <div className="p-2.5 bg-rose-950/20 border border-rose-500/40 rounded-xl space-y-2 text-xs">
               <div className="flex items-center justify-between text-rose-300 text-[11px]">
-                <span className="flex items-center space-x-1">
-                  <Lock className="w-3 h-3" />
+                <span className="flex items-center space-x-1 font-semibold">
+                  <Lock className="w-3 h-3 text-rose-400" />
                   <span>打工小号私钥 (仅供应急备份)</span>
                 </span>
                 <button
@@ -447,8 +673,14 @@ export const KeeperCard: React.FC = () => {
                   {copied === "key" ? "已复制" : "复制私钥"}
                 </button>
               </div>
-              <div className="font-mono text-[10px] text-slate-300 break-all bg-slate-950/80 p-2 rounded">
+              <div className="font-mono text-[10px] text-slate-300 break-all bg-slate-950/80 p-2 rounded border border-slate-800">
                 {keeper.privateKey}
+              </div>
+              <div className="text-[10px] text-amber-300/90 leading-tight flex items-start space-x-1">
+                <AlertTriangle className="w-3 h-3 text-amber-400 shrink-0 mt-0.5" />
+                <span>
+                  安全提示: 该私钥仅存储在您本地浏览器的沙箱环境中，由于智能合约具备绝对资金归属公理 (Zero-Theft)，该小号无权转移主钱包资金，但其内部存放有微量 Gas 燃料 (BNB)，请妥善保管勿泄露给第三方。
+                </span>
               </div>
             </div>
           )}

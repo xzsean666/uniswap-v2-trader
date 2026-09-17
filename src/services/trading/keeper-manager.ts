@@ -67,7 +67,10 @@ export function normalizePrivateKey(rawKey: string): Hex {
   if (!isHex(hexKey) || hexKey.length !== 66) {
     throw new Error("无效的以太坊私钥格式，必须为 64 位十六进制字符 (带 0x 长度为 66)");
   }
-  return hexKey as Hex;
+  if (/^0x0{64}$/i.test(hexKey)) {
+    throw new Error("不能使用全零的无效私钥");
+  }
+  return hexKey.toLowerCase() as Hex;
 }
 
 /**
@@ -128,10 +131,16 @@ export function importKeeperWallet(rawKey: string): StoredKeeperData {
 }
 
 /**
- * Clear stored Keeper wallet
+ * Clear stored Keeper wallet with zero-fill memory sanitization
  */
 export function clearKeeperWallet(): void {
-  getKeeperStorage().removeItem(KEEPER_STORAGE_KEY);
+  try {
+    const storage = getKeeperStorage();
+    storage.setItem(KEEPER_STORAGE_KEY, "0".repeat(66));
+    storage.removeItem(KEEPER_STORAGE_KEY);
+  } catch {
+    // Fallback if storage access fails
+  }
 }
 
 /**

@@ -12,6 +12,12 @@ import {
   Repeat,
   CheckCircle2,
   Play,
+  Zap,
+  Activity,
+  Clock,
+  RefreshCw,
+  AlertCircle,
+  History,
 } from "lucide-react";
 import { parseUnits, type Address } from "viem";
 import { CyberCard } from "../../components/ui/CyberCard";
@@ -35,6 +41,7 @@ import { executeKeeperSwap } from "../../services/trading/keeper-executor";
 import { CONTRACT_ADDRESSES } from "../../constants/contracts";
 import { useKeeper } from "../../context/KeeperContext";
 import { KeeperCard } from "../../components/keeper/KeeperCard";
+import { useStrategyRunner } from "../../context/StrategyRunnerContext";
 
 export interface ReverseTradePanelProps {
   pairAddress?: string;
@@ -72,6 +79,18 @@ export const ReverseTradePanel: React.FC<ReverseTradePanelProps> = ({
     proxyAddress,
     refreshBalance,
   } = useKeeper();
+
+  const {
+    status: runnerStatus,
+    statusMessage: runnerStatusMessage,
+    basePrice: runnerBasePrice,
+    cooldownRemaining,
+    recentExecutions,
+    applyAndActivateStrategy,
+    updateBasePrice,
+    recordExecution,
+  } = useStrategyRunner();
+
   const [isExecuting, setIsExecuting] = useState<"buy" | "sell" | null>(null);
 
   const [config, setConfig] = useState<AutoTradeConfig>(() =>
@@ -97,13 +116,13 @@ export const ReverseTradePanel: React.FC<ReverseTradePanelProps> = ({
   };
 
   const handleApplyBuy = () => {
-    StrategyStore.saveAutoTrade(config);
-    showToast("反向买入策略设置已保存并应用！");
+    applyAndActivateStrategy(config, currentPrice);
+    showToast("反向买入策略已保存，全自动监控与静默交易已激活！");
   };
 
   const handleApplySell = () => {
-    StrategyStore.saveAutoTrade(config);
-    showToast("反向卖出策略设置已保存并应用！");
+    applyAndActivateStrategy(config, currentPrice);
+    showToast("反向卖出策略已保存，全自动监控与静默交易已激活！");
   };
 
   const handleSimulateAndExecute = async (side: "buy" | "sell") => {
@@ -169,11 +188,11 @@ export const ReverseTradePanel: React.FC<ReverseTradePanelProps> = ({
         priceFloor: sideConfig.priceFloor,
       });
 
-      if (!simResult.allowed) {
+      if (!simResult.allowed || !simResult.expectedAmountOut || simResult.expectedAmountOut <= 0n) {
         showNotification({
           status: "failed",
           title: "模拟预执行拦截",
-          message: simResult.reason || "交易未通过安全策略校验",
+          message: simResult.reason || "未能获取有效链上预期输出金额，流动性不足或防貔貅机制生效",
         });
         return;
       }
@@ -209,7 +228,7 @@ export const ReverseTradePanel: React.FC<ReverseTradePanelProps> = ({
         await waitForTransactionReceipt(approveRes.txHash, 30000, 2000);
       }
 
-      const expectedOut = simResult.expectedAmountOut || amountInBigInt;
+      const expectedOut = simResult.expectedAmountOut;
       let swapTxHash: `0x${string}`;
 
       if (isKeeperMode && keeper) {
@@ -271,6 +290,18 @@ export const ReverseTradePanel: React.FC<ReverseTradePanelProps> = ({
       }
 
       if (receipt.status === "success") {
+        recordExecution({
+          id: `manual-${Date.now()}`,
+          timestamp: Date.now(),
+          pairAddress: pairAddress || "",
+          side,
+          amount: tradeAmount,
+          price: currentPrice,
+          txHash: swapTxHash,
+          status: "success",
+          reason: `手动执行成功 (${side === "buy" ? "买入" : "卖出"})`,
+        });
+
         showNotification({
           status: "success",
           title: `${side === "buy" ? "反向买入" : "反向卖出"} 交易已确认！`,
@@ -310,6 +341,135 @@ export const ReverseTradePanel: React.FC<ReverseTradePanelProps> = ({
 
       {/* Dedicated Keeper Automated Custody Card */}
       <KeeperCard />
+
+      {/* Live Autonomous Trading Monitor Card */}
+      <CyberCard className="space-y-3 border-cyber-border bg-gradient-to-br from-slate-900/90 to-cyber-card/90">
+        <div className="flex items-center justify-between border-b border-slate-800/80 pb-2.5">
+          <div className="flex items-center space-x-2">
+            <Zap className="w-4 h-4 text-cyber-cyan animate-pulse" />
+            <span className="font-bold text-sm text-slate-100">
+              AI 全自动量化执行引擎
+            </span>
+          </div>
+
+          <div className="flex items-center space-x-2">
+            {runnerStatus === "monitoring" && (
+              <span className="px-2 py-0.5 rounded text-[11px] font-mono bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 flex items-center space-x-1">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping" />
+                <span>监控运行中</span>
+              </span>
+            )}
+            {runnerStatus === "cooldown" && (
+              <span className="px-2 py-0.5 rounded text-[11px] font-mono bg-amber-500/10 text-amber-400 border border-amber-500/30 flex items-center space-x-1">
+                <Clock className="w-3 h-3" />
+                <span>冷却中 ({cooldownRemaining}s)</span>
+              </span>
+            )}
+            {runnerStatus === "executing" && (
+              <span className="px-2 py-0.5 rounded text-[11px] font-mono bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 flex items-center space-x-1">
+                <Activity className="w-3 h-3 animate-spin" />
+                <span>Keeper静默下单中</span>
+              </span>
+            )}
+            {runnerStatus === "warning" && (
+              <span className="px-2 py-0.5 rounded text-[11px] font-mono bg-rose-500/10 text-rose-400 border border-rose-500/30 flex items-center space-x-1">
+                <AlertCircle className="w-3 h-3" />
+                <span>待就绪</span>
+              </span>
+            )}
+            {runnerStatus === "idle" && (
+              <span className="px-2 py-0.5 rounded text-[11px] font-mono bg-slate-800 text-slate-400">
+                未启动
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Status Message */}
+        <div className="p-2.5 rounded-xl bg-cyber-cardInner/80 border border-slate-800 text-xs flex items-center justify-between text-slate-300">
+          <div className="truncate mr-2 font-mono text-[11px] text-cyber-textMuted">
+            {runnerStatusMessage}
+          </div>
+          <button
+            type="button"
+            onClick={() => updateBasePrice(currentPrice)}
+            className="text-cyber-cyan hover:underline text-[11px] whitespace-nowrap flex items-center space-x-1"
+            title="将当前最新成交价作为基准锚定价"
+          >
+            <RefreshCw className="w-3 h-3" />
+            <span>重置基准价</span>
+          </button>
+        </div>
+
+        {/* Real-time Threshold Preview */}
+        {((runnerBasePrice && runnerBasePrice > 0) || currentPrice > 0) && (
+          <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+            <div className="p-2 bg-cyber-cardInner/60 rounded-xl border border-slate-800">
+              <span className="text-[10px] text-cyber-textMuted block">自动买入触发线</span>
+              <span className="text-emerald-400 font-bold block pt-0.5">
+                ≤ {(((runnerBasePrice ?? currentPrice)) * (1 - config.buy.dropThreshold / 100)).toFixed(4)}
+              </span>
+              <span className="text-[10px] text-slate-400">
+                (跌幅 -{config.buy.dropThreshold}%, {config.buy.active && config.buy.auto ? "已激活" : "未开启"})
+              </span>
+            </div>
+
+            <div className="p-2 bg-cyber-cardInner/60 rounded-xl border border-slate-800">
+              <span className="text-[10px] text-cyber-textMuted block">自动卖出触发线</span>
+              <span className="text-rose-400 font-bold block pt-0.5">
+                ≥ {(((runnerBasePrice ?? currentPrice)) * (1 + config.sell.riseThreshold / 100)).toFixed(4)}
+              </span>
+              <span className="text-[10px] text-slate-400">
+                (涨幅 +{config.sell.riseThreshold}%, {config.sell.active && config.sell.auto ? "已激活" : "未开启"})
+              </span>
+            </div>
+          </div>
+        )}
+
+        {/* Recent Automated Executions */}
+        {recentExecutions.length > 0 && (
+          <div className="pt-2 border-t border-slate-800/80 space-y-1.5">
+            <div className="flex items-center justify-between text-[11px] text-cyber-textMuted font-mono">
+              <span className="flex items-center space-x-1">
+                <History className="w-3 h-3" />
+                <span>最近 AI 自动触发流水 ({recentExecutions.length})</span>
+              </span>
+            </div>
+            <div className="space-y-1 max-h-36 overflow-y-auto pr-1 text-[11px] font-mono">
+              {recentExecutions.map((item) => (
+                <div
+                  key={item.id}
+                  className="p-1.5 rounded-lg bg-cyber-cardInner/40 border border-slate-800 flex items-center justify-between"
+                >
+                  <div className="flex items-center space-x-1.5">
+                    <span
+                      className={`px-1 rounded text-[10px] ${
+                        item.side === "buy"
+                          ? "bg-emerald-500/20 text-emerald-400"
+                          : "bg-rose-500/20 text-rose-400"
+                      }`}
+                    >
+                      {item.side === "buy" ? "自动买" : "自动卖"}
+                    </span>
+                    <span className="text-slate-200 font-semibold">{item.amount}</span>
+                    <span className="text-cyber-textMuted text-[10px]">
+                      @{item.price.toFixed(4)}
+                    </span>
+                  </div>
+                  <a
+                    href={`https://testnet.bscscan.com/tx/${item.txHash}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="text-cyber-cyan hover:underline text-[10px]"
+                  >
+                    详情 ↗
+                  </a>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+      </CyberCard>
 
       {/* Buy Settings Card */}
       <CyberCard className="space-y-4 border-cyber-border">
@@ -431,14 +591,26 @@ export const ReverseTradePanel: React.FC<ReverseTradePanelProps> = ({
           <div className="flex items-center justify-between py-0.5">
             <span className="text-slate-300 flex items-center space-x-1">
               <Shield className="w-3.5 h-3.5 text-cyber-cyan" />
-              <span>价格下限</span>
+              <span>价格下限保底</span>
             </span>
-            <span className="text-slate-300 font-mono">
-              1 {token1Symbol} 至少兑换{" "}
-              <span className="text-cyber-cyan font-bold">
-                {config.buy.priceFloor} {token0Symbol}
-              </span>
-            </span>
+            <div className="flex items-center space-x-1.5 font-mono text-xs">
+              <span className="text-slate-400 text-[11px]">1 {token1Symbol} ≥</span>
+              <input
+                data-testid="buy-price-floor-input"
+                type="number"
+                step="0.01"
+                min="0"
+                value={config.buy.priceFloor}
+                onChange={(e) =>
+                  updateBuy((b) => ({
+                    ...b,
+                    priceFloor: parseFloat(e.target.value) || 0,
+                  }))
+                }
+                className="w-20 bg-cyber-cardInner border border-slate-700/80 rounded-lg px-2 py-0.5 text-cyber-cyan font-bold text-right outline-none focus:border-cyber-cyan"
+              />
+              <span className="text-slate-300 text-[11px]">{token0Symbol}</span>
+            </div>
           </div>
 
           <div className="flex items-center justify-between">
@@ -521,6 +693,7 @@ export const ReverseTradePanel: React.FC<ReverseTradePanelProps> = ({
         {/* Action Buttons */}
         <div className="grid grid-cols-2 gap-2 mt-4">
           <CyberButton
+            data-testid="simulate-execute-buy-btn"
             variant="outline"
             className="text-xs"
             loading={isExecuting === "buy"}
@@ -664,14 +837,25 @@ export const ReverseTradePanel: React.FC<ReverseTradePanelProps> = ({
           <div className="flex items-center justify-between py-0.5">
             <span className="text-slate-300 flex items-center space-x-1">
               <Shield className="w-3.5 h-3.5 text-rose-400" />
-              <span>价格下限</span>
+              <span>价格下限保底</span>
             </span>
-            <span className="text-slate-300 font-mono">
-              1 {token0Symbol} 至少兑换{" "}
-              <span className="text-rose-400 font-bold">
-                {config.sell.priceFloor} {token1Symbol}
-              </span>
-            </span>
+            <div className="flex items-center space-x-1.5 font-mono text-xs">
+              <span className="text-slate-400 text-[11px]">1 {token0Symbol} ≥</span>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                value={config.sell.priceFloor}
+                onChange={(e) =>
+                  updateSell((s) => ({
+                    ...s,
+                    priceFloor: parseFloat(e.target.value) || 0,
+                  }))
+                }
+                className="w-20 bg-cyber-cardInner border border-slate-700/80 rounded-lg px-2 py-0.5 text-rose-400 font-bold text-right outline-none focus:border-rose-400"
+              />
+              <span className="text-slate-300 text-[11px]">{token1Symbol}</span>
+            </div>
           </div>
 
           <div className="flex items-center justify-between">

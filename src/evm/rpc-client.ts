@@ -4,29 +4,58 @@ import {
 } from "@evm-event-lake/node-sdk/evm-call";
 import {
   BSC_TESTNET_CHAIN_ID,
-  BSC_TESTNET_RPCS,
   CONTRACT_ADDRESSES,
+  getRpcUrlsForChain,
 } from "../constants/contracts";
 import { MemoryStorageAdapter } from "./memory-storage";
 
 let clientInstance: EvmCallClient | null = null;
+let currentClientChainId: number | null = null;
+let activeChainId: number = BSC_TESTNET_CHAIN_ID;
 let currentRpcIndex = 0;
 
 /**
- * Get or create the shared EvmCallClient configured for BSC Testnet.
+ * Set the currently active chain ID for default RPC routing
  */
-export async function getEvmCallClient(): Promise<EvmCallClient> {
-  if (clientInstance) {
+export function setActiveChainId(chainId: number): void {
+  if (activeChainId !== chainId) {
+    activeChainId = chainId;
+    if (currentClientChainId !== chainId) {
+      closeEvmCallClient();
+    }
+  }
+}
+
+/**
+ * Get the currently active chain ID
+ */
+export function getActiveChainId(): number {
+  return activeChainId;
+}
+
+/**
+ * Get or create the shared EvmCallClient configured for target chain.
+ */
+export async function getEvmCallClient(chainId?: number): Promise<EvmCallClient> {
+  const targetChainId = chainId ?? activeChainId;
+  if (clientInstance && currentClientChainId === targetChainId) {
     return clientInstance;
   }
 
+  if (clientInstance) {
+    await closeEvmCallClient();
+  }
+
+  const rpcPool = [...getRpcUrlsForChain(targetChainId)];
   const memoryStorage = new MemoryStorageAdapter();
   clientInstance = createEvmCallClient({
-    chainId: BSC_TESTNET_CHAIN_ID,
-    customRpcUrls: [...BSC_TESTNET_RPCS],
+    chainId: targetChainId,
+    customRpcUrls: rpcPool,
     multicall3Address: CONTRACT_ADDRESSES.MULTICALL3,
     storageAdapter: memoryStorage as any,
   });
+
+  currentClientChainId = targetChainId;
 
   try {
     await clientInstance.init();
@@ -46,23 +75,39 @@ export async function closeEvmCallClient(): Promise<void> {
       await clientInstance.close();
     } finally {
       clientInstance = null;
+      currentClientChainId = null;
     }
   }
 }
 
 /**
- * Send raw JSON-RPC request with automatic failover and retry across BSC Testnet RPC pool.
+ * Resolve target RPC list from explicit param or active chain
+ */
+function resolveRpcPool(customRpcUrlOrChainId?: string | number): readonly string[] {
+  if (typeof customRpcUrlOrChainId === "string" && customRpcUrlOrChainId.length > 0) {
+    return [customRpcUrlOrChainId];
+  }
+  if (typeof customRpcUrlOrChainId === "number") {
+    return getRpcUrlsForChain(customRpcUrlOrChainId);
+  }
+  return getRpcUrlsForChain(activeChainId);
+}
+
+/**
+ * Send raw JSON-RPC request with automatic failover and retry across target RPC pool.
  */
 export async function requestJsonRpc<T = unknown>(
   method: string,
   params: unknown[] = [],
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  customRpcUrlOrChainId?: string | number
 ): Promise<T> {
   let lastError: Error | null = null;
-  const attempts = BSC_TESTNET_RPCS.length * 2;
+  const pool = resolveRpcPool(customRpcUrlOrChainId);
+  const attempts = pool.length * 2;
 
   for (let i = 0; i < attempts; i++) {
-    const rpcUrl = BSC_TESTNET_RPCS[currentRpcIndex % BSC_TESTNET_RPCS.length];
+    const rpcUrl = pool[currentRpcIndex % pool.length];
     try {
       const response = await fetch(rpcUrl, {
         method: "POST",
@@ -90,6 +135,9 @@ export async function requestJsonRpc<T = unknown>(
       lastError = err;
       // Switch to next RPC endpoint
       currentRpcIndex++;
+      if (i < attempts - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 100 * (i + 1)));
+      }
     }
   }
 
@@ -97,10 +145,10 @@ export async function requestJsonRpc<T = unknown>(
 }
 
 /**
- * Fetch current block number from BSC Testnet
+ * Fetch current block number from active network
  */
-export async function getLatestBlockNumber(): Promise<bigint> {
-  const result = await requestJsonRpc<string>("eth_blockNumber");
+export async function getLatestBlockNumber(chainId?: number): Promise<bigint> {
+  const result = await requestJsonRpc<string>("eth_blockNumber", [], undefined, chainId);
   return BigInt(result);
 }
 
@@ -109,12 +157,14 @@ export async function getLatestBlockNumber(): Promise<bigint> {
  */
 export async function requestJsonRpcBatch<T = unknown>(
   requests: Array<{ method: string; params: unknown[] }>,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  customRpcUrlOrChainId?: string | number
 ): Promise<T[]> {
   if (requests.length === 0) return [];
 
   let lastError: Error | null = null;
-  const attempts = BSC_TESTNET_RPCS.length * 2;
+  const pool = resolveRpcPool(customRpcUrlOrChainId);
+  const attempts = pool.length * 2;
 
   const payload = requests.map((req, index) => ({
     jsonrpc: "2.0",
@@ -124,7 +174,7 @@ export async function requestJsonRpcBatch<T = unknown>(
   }));
 
   for (let i = 0; i < attempts; i++) {
-    const rpcUrl = BSC_TESTNET_RPCS[currentRpcIndex % BSC_TESTNET_RPCS.length];
+    const rpcUrl = pool[currentRpcIndex % pool.length];
     try {
       const response = await fetch(rpcUrl, {
         method: "POST",
@@ -153,6 +203,9 @@ export async function requestJsonRpcBatch<T = unknown>(
     } catch (err: any) {
       lastError = err;
       currentRpcIndex++;
+      if (i < attempts - 1) {
+        await new Promise((resolve) => setTimeout(resolve, 100 * (i + 1)));
+      }
     }
   }
 

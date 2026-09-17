@@ -6,6 +6,7 @@ import React, {
   useCallback,
   type ReactNode,
 } from "react";
+import type { Address } from "viem";
 import {
   validatePairAddress,
   fetchPairOverview,
@@ -21,7 +22,7 @@ import {
   isPairPolling,
 } from "../services/sync/realtime-poller";
 import { syncEvents, type SwapLogPayload } from "../services/sync/event-emitter";
-import { SubscriptionStore } from "../storage/subscription-store";
+import { SubscriptionStore, type PairSubscription } from "../storage/subscription-store";
 import type { CustomContractConfig } from "../views/swap-monitor/CustomContractPanel";
 
 export interface ActivePairContextState {
@@ -40,6 +41,10 @@ export interface ActivePairContextState {
   setRecentEvents: React.Dispatch<React.SetStateAction<SwapLogPayload[]>>;
   customContract: CustomContractConfig;
   setCustomContract: React.Dispatch<React.SetStateAction<CustomContractConfig>>;
+  subscriptions: PairSubscription[];
+  addSubscription: (sub: PairSubscription) => Promise<void>;
+  removeSubscription: (pairAddress: string) => Promise<void>;
+  selectPair: (pairAddress: string, autoListen?: boolean) => Promise<void>;
   startListening: (address?: string) => Promise<void>;
   stopListening: () => Promise<void>;
   refreshPair: () => Promise<void>;
@@ -50,7 +55,9 @@ const ActivePairContext = createContext<ActivePairContextState | null>(null);
 export const ActivePairProvider: React.FC<{ children: ReactNode }> = ({
   children,
 }) => {
-  const [pairAddressInput, setPairAddressInput] = useState("");
+  const [pairAddressInput, setPairAddressInput] = useState(
+    "0xf03EBe5CD689FEdC9204aF66Cb3431750B89bc02"
+  );
   const [activePair, setActivePair] = useState<PairOverview | null>(null);
   const [isListening, setIsListening] = useState(false);
   const [isSyncing, setIsSyncing] = useState(false);
@@ -58,6 +65,7 @@ export const ActivePairProvider: React.FC<{ children: ReactNode }> = ({
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [maxDisplayEvents, setMaxDisplayEvents] = useState(15);
   const [recentEvents, setRecentEvents] = useState<SwapLogPayload[]>([]);
+  const [subscriptions, setSubscriptions] = useState<PairSubscription[]>([]);
 
   const [customContract, setCustomContract] = useState<CustomContractConfig>({
     enabled: false,
@@ -72,6 +80,9 @@ export const ActivePairProvider: React.FC<{ children: ReactNode }> = ({
     async function loadInitial() {
       try {
         const allSubs = await SubscriptionStore.getAll();
+        if (mounted) {
+          setSubscriptions(allSubs);
+        }
         if (allSubs.length > 0 && mounted) {
           const first = allSubs[0];
           setPairAddressInput(first.pairAddress);
@@ -107,7 +118,13 @@ export const ActivePairProvider: React.FC<{ children: ReactNode }> = ({
 
     // Listen globally for incoming swaps to keep recentEvents and price updated
     const unbindSwap = syncEvents.on("new_swap", (payload) => {
-      setRecentEvents((prev) => [payload, ...prev.slice(0, 49)]);
+      setRecentEvents((prev) => {
+        const key = `${payload.transactionHash}:${payload.logIndex}`;
+        if (prev.some((p) => `${p.transactionHash}:${p.logIndex}` === key)) {
+          return prev;
+        }
+        return [payload, ...prev.slice(0, 49)];
+      });
 
       if (payload.effectivePrice && payload.effectivePrice > 0) {
         setActivePair((prev) => {
@@ -209,6 +226,35 @@ export const ActivePairProvider: React.FC<{ children: ReactNode }> = ({
     setIsListening(false);
   }, [pairAddressInput]);
 
+  const addSubscription = useCallback(async (sub: PairSubscription) => {
+    await SubscriptionStore.save(sub);
+    const all = await SubscriptionStore.getAll();
+    setSubscriptions(all);
+  }, []);
+
+  const removeSubscription = useCallback(async (pairAddress: string) => {
+    await SubscriptionStore.delete(pairAddress);
+    const all = await SubscriptionStore.getAll();
+    setSubscriptions(all);
+  }, []);
+
+  const selectPair = useCallback(
+    async (pairAddress: string, autoListen = false) => {
+      setPairAddressInput(pairAddress);
+      setErrorMessage(null);
+      try {
+        const overview = await fetchPairOverview(pairAddress as Address);
+        setActivePair(overview);
+        if (autoListen) {
+          await startListening(pairAddress);
+        }
+      } catch (err: any) {
+        setErrorMessage(err?.message || "无法读取币对信息");
+      }
+    },
+    [startListening]
+  );
+
   return (
     <ActivePairContext.Provider
       value={{
@@ -227,6 +273,10 @@ export const ActivePairProvider: React.FC<{ children: ReactNode }> = ({
         setRecentEvents,
         customContract,
         setCustomContract,
+        subscriptions,
+        addSubscription,
+        removeSubscription,
+        selectPair,
         startListening,
         stopListening,
         refreshPair,

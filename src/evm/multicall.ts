@@ -40,7 +40,8 @@ export interface ContractReadResult<T = unknown> {
  */
 export async function executeAggregate3(
   calls: Multicall3Call[],
-  blockTag: string = "latest"
+  blockTag: string = "latest",
+  chainId?: number
 ): Promise<Multicall3Result[]> {
   if (calls.length === 0) return [];
 
@@ -54,13 +55,18 @@ export async function executeAggregate3(
   );
 
   // Send eth_call to Multicall3 contract
-  const hexResult = await requestJsonRpc<string>("eth_call", [
-    {
-      to: CONTRACT_ADDRESSES.MULTICALL3,
-      data: encodedCalldata,
-    },
-    blockTag,
-  ]);
+  const hexResult = await requestJsonRpc<string>(
+    "eth_call",
+    [
+      {
+        to: CONTRACT_ADDRESSES.MULTICALL3,
+        data: encodedCalldata,
+      },
+      blockTag,
+    ],
+    undefined,
+    chainId
+  );
 
   // Decode aggregate3 return data
   const decoded = decodeAggregate3Result(hexResult, calls.length);
@@ -75,7 +81,8 @@ export async function executeAggregate3(
  */
 export async function multicallRead<T = unknown>(
   calls: ContractReadCall[],
-  blockTag: string = "latest"
+  blockTag: string = "latest",
+  chainId?: number
 ): Promise<ContractReadResult<T>[]> {
   if (calls.length === 0) return [];
 
@@ -91,7 +98,7 @@ export async function multicallRead<T = unknown>(
   }));
 
   // 2. Execute Multicall3 aggregate3
-  const rawResults = await executeAggregate3(encodedCalls, blockTag);
+  const rawResults = await executeAggregate3(encodedCalls, blockTag, chainId);
 
   // 3. Decode each call
   return rawResults.map((raw, index) => {

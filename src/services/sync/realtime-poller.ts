@@ -9,6 +9,7 @@ export interface PollerSession {
   lake: EVMEventLake;
   timer: ReturnType<typeof setInterval> | null;
   isUpdating: boolean;
+  emittedKeys: Set<string>;
 }
 
 const activePollers = new Map<string, PollerSession>();
@@ -32,6 +33,7 @@ export function startRealtimePolling(
     lake,
     timer: null,
     isUpdating: false,
+    emittedKeys: new Set<string>(),
   };
 
   const pollTick = async () => {
@@ -54,6 +56,18 @@ export function startRealtimePolling(
         const chronologicalItems = [...page.items].reverse();
 
         for (const item of chronologicalItems) {
+          const eventKey = `${item.transactionHash}:${item.logIndex}`;
+          if (session.emittedKeys.has(eventKey)) {
+            continue;
+          }
+
+          session.emittedKeys.add(eventKey);
+          if (session.emittedKeys.size > 500) {
+            // Prune oldest elements
+            const firstKey = session.emittedKeys.values().next().value;
+            if (firstKey) session.emittedKeys.delete(firstKey);
+          }
+
           const enrichData = item.additionalData as SwapEnrichmentData | undefined;
 
           const payload: SwapLogPayload = {

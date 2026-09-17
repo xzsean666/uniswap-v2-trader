@@ -21,7 +21,8 @@ import {
   type TradeSideConfig,
 } from "../../strategies/auto-trade-types";
 import { StrategyStore } from "../../strategies/strategy-store";
-import { KeeperCard } from "../../components/keeper/KeeperCard";
+import { KeeperDependencyGuard } from "../../components/keeper/KeeperDependencyGuard";
+import { useKeeper } from "../../context/KeeperContext";
 import { useStrategyRunner } from "../../context/StrategyRunnerContext";
 
 export interface AutoTradePanelProps {
@@ -29,6 +30,7 @@ export interface AutoTradePanelProps {
   token0Symbol?: string;
   token1Symbol?: string;
   currentPrice?: number;
+  onNavigateToKeeper?: () => void;
 }
 
 export const AutoTradePanel: React.FC<AutoTradePanelProps> = ({
@@ -36,7 +38,9 @@ export const AutoTradePanel: React.FC<AutoTradePanelProps> = ({
   token0Symbol = "ACP",
   token1Symbol = "USDT",
   currentPrice = 0.99365,
+  onNavigateToKeeper,
 }) => {
+  const { keeper } = useKeeper();
   const { applyAndActivateStrategy } = useStrategyRunner();
   const [config, setConfig] = useState<AutoTradeConfig>(() =>
     StrategyStore.loadAutoTrade(pairAddress)
@@ -67,12 +71,16 @@ export const AutoTradePanel: React.FC<AutoTradePanelProps> = ({
       {savedSuccess && (
         <div className="p-3 bg-emerald-950/50 border border-emerald-500/40 rounded-xl flex items-center space-x-2 text-xs text-emerald-300 animate-fadeIn">
           <CheckCircle2 className="w-4 h-4 text-emerald-400" />
-          <span>AI 自动交易配置已成功保存并立即生效！</span>
+          <span>
+            {keeper
+              ? "AI 自动交易配置已成功保存并立即生效！"
+              : "配置已保存！请在「专属打工小号」Tab 中配置 Keeper 激活自动交易。"}
+          </span>
         </div>
       )}
 
-      {/* Dedicated Keeper Automated Custody Card */}
-      <KeeperCard />
+      {/* Keeper Dependency Status & Guard */}
+      <KeeperDependencyGuard onNavigateToKeeper={onNavigateToKeeper || (() => {})} />
 
       {/* Buy Settings Card */}
       <CyberCard className="space-y-4 border-cyber-border">

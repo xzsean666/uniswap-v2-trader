@@ -5,14 +5,22 @@ import {
 import {
   BSC_TESTNET_CHAIN_ID,
   CONTRACT_ADDRESSES,
-  getRpcUrlsForChain,
+  getStandardRpcUrlsForChain,
 } from "../constants/contracts";
 import { MemoryStorageAdapter } from "./memory-storage";
+import { RpcPoolManager } from "../services/rpc/rpc-pool-manager";
 
 let clientInstance: EvmCallClient | null = null;
 let currentClientChainId: number | null = null;
 let activeChainId: number = BSC_TESTNET_CHAIN_ID;
 let currentRpcIndex = 0;
+
+// Listen for dynamic RPC pool modifications and reset EvmCallClient to inject updated endpoints
+RpcPoolManager.onPoolChange((changedChainId) => {
+  if (currentClientChainId === null || currentClientChainId === changedChainId) {
+    closeEvmCallClient();
+  }
+});
 
 /**
  * Set the currently active chain ID for default RPC routing
@@ -46,7 +54,7 @@ export async function getEvmCallClient(chainId?: number): Promise<EvmCallClient>
     await closeEvmCallClient();
   }
 
-  const rpcPool = [...getRpcUrlsForChain(targetChainId)];
+  const rpcPool = [...getStandardRpcUrlsForChain(targetChainId)];
   const memoryStorage = new MemoryStorageAdapter();
   clientInstance = createEvmCallClient({
     chainId: targetChainId,
@@ -88,9 +96,9 @@ function resolveRpcPool(customRpcUrlOrChainId?: string | number): readonly strin
     return [customRpcUrlOrChainId];
   }
   if (typeof customRpcUrlOrChainId === "number") {
-    return getRpcUrlsForChain(customRpcUrlOrChainId);
+    return getStandardRpcUrlsForChain(customRpcUrlOrChainId);
   }
-  return getRpcUrlsForChain(activeChainId);
+  return getStandardRpcUrlsForChain(activeChainId);
 }
 
 /**
@@ -132,6 +140,9 @@ export async function requestJsonRpc<T = unknown>(
 
       return json.result as T;
     } catch (err: any) {
+      if (signal?.aborted) {
+        throw err;
+      }
       lastError = err;
       // Switch to next RPC endpoint
       currentRpcIndex++;
@@ -147,8 +158,11 @@ export async function requestJsonRpc<T = unknown>(
 /**
  * Fetch current block number from active network
  */
-export async function getLatestBlockNumber(chainId?: number): Promise<bigint> {
-  const result = await requestJsonRpc<string>("eth_blockNumber", [], undefined, chainId);
+export async function getLatestBlockNumber(
+  chainId?: number,
+  signal?: AbortSignal
+): Promise<bigint> {
+  const result = await requestJsonRpc<string>("eth_blockNumber", [], signal, chainId);
   return BigInt(result);
 }
 
@@ -201,6 +215,9 @@ export async function requestJsonRpcBatch<T = unknown>(
         return item.result;
       });
     } catch (err: any) {
+      if (signal?.aborted) {
+        throw err;
+      }
       lastError = err;
       currentRpcIndex++;
       if (i < attempts - 1) {

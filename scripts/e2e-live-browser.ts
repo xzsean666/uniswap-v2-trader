@@ -39,14 +39,20 @@ async function main() {
     transport: http("https://bsc-testnet-dataseed.bnbchain.org"),
   });
 
-  // 1. Start Vite dev server on port 5173
-  console.log("Starting Vite development server...");
-  const server: ViteDevServer = await createServer({
-    server: { port: 5173 },
-  });
-  await server.listen();
-  const serverUrl = "http://localhost:5173";
-  console.log(`Vite server listening at ${serverUrl}`);
+  // 1. Determine target URL (local Vite server or remote Cloudflare URL)
+  let server: ViteDevServer | null = null;
+  let serverUrl = process.env.TARGET_URL || process.argv[2];
+  if (!serverUrl) {
+    console.log("Starting Vite development server...");
+    server = await createServer({
+      server: { port: 5173 },
+    });
+    await server.listen();
+    serverUrl = "http://localhost:5173";
+    console.log(`Vite server listening at ${serverUrl}`);
+  } else {
+    console.log(`Targeting remote deployment at: ${serverUrl}`);
+  }
 
   // 2. Launch Chromium browser (Google Chrome)
   console.log("Launching Headless Chrome via Playwright...");
@@ -218,26 +224,25 @@ async function main() {
     console.log("Navigating to '监听Swap' Tab...");
     const monitorTab = page.locator("button", { hasText: "监听Swap" });
     await monitorTab.click();
-    await page.waitForTimeout(800);
+    await page.waitForTimeout(1000);
 
-    // Click "加载 swap 并监听"
-    console.log("Clicking '加载 swap 并监听' for deployed LP pair...");
-    const loadSwapBtn = page.locator("button", { hasText: "加载 swap 并监听" });
-    await loadSwapBtn.click();
+    // Click preset pair chip "ALPHA / BETA" to subscribe
+    const presetChip = page.locator("button", { hasText: "ALPHA / BETA" }).first();
+    if (await presetChip.isVisible()) {
+      console.log("Clicking preset pair chip 'ALPHA / BETA' to subscribe...");
+      await presetChip.click();
+      await page.waitForTimeout(1500);
+    }
 
-    // Wait for active pair overview and reserves to appear
-    console.log("Waiting for on-chain pair reserves & data to sync...");
-    await page.locator("text=汇率:").first().waitFor({ state: "visible", timeout: 20000 });
-    
-    // Wait for wallet balance to be loaded from chain
-    console.log("Waiting for user wallet token balances to populate...");
-    await page.waitForFunction(() => {
-      const texts = Array.from(document.querySelectorAll("span")).map(s => s.textContent || "");
-      return texts.some(t => t.includes("ALPHA") && !t.includes("--"));
-    }, { timeout: 15000 }).catch(() => {});
-    await page.waitForTimeout(2000);
+    // Click "启动监听" if available
+    const startListenBtn = page.locator("button", { hasText: "启动监听" }).first();
+    if (await startListenBtn.isVisible()) {
+      console.log("Clicking '启动监听' on dashboard...");
+      await startListenBtn.click();
+      await page.waitForTimeout(2000);
+    }
 
-    // Screenshot 3: Swap Monitor & Reserves (showing Pancake popular presets & custom watchlist)
+    // Screenshot 3: Swap Monitor & Reserves (Big Screen Dashboard)
     console.log("Capturing 03_swap_monitor_and_reserves.png...");
     await page.screenshot({
       path: path.join(SCREENSHOT_DIR, "03_swap_monitor_and_reserves.png"),
@@ -266,20 +271,35 @@ async function main() {
       }
     }
 
-    // Scroll down to 24h Trend Chart & Recent Events
-    console.log("Scrolling down to 24h Trend Chart and Recent Events...");
-    await page.evaluate(() => window.scrollBy({ top: 520, behavior: "instant" }));
-    await page.waitForTimeout(1500);
+    // Click into Detailed Report Popup Modal ("详细报告,就是弹出一个框框就好")
+    console.log("Clicking '详细报告' to open pair detail modal dialog popup...");
+    const detailBtn = page.locator("button", { hasText: "详细报告" }).first();
+    if (await detailBtn.isVisible()) {
+      await detailBtn.click();
+      await page.waitForTimeout(1500);
 
-    // Screenshot 4: 24h Trend Chart & Events
-    console.log("Capturing 04_price_trend_and_events.png...");
-    await page.screenshot({
-      path: path.join(SCREENSHOT_DIR, "04_price_trend_and_events.png"),
-      fullPage: false,
-    });
+      // Verify modal dialog appeared
+      const modalLocator = page.locator('[data-testid="pair-detail-modal"]');
+      await modalLocator.waitFor({ state: "visible", timeout: 10000 });
+      console.log("PairDetailModal popup successfully opened!");
 
-    // 7. Navigate to "设置策略" -> "反买反卖"
-    console.log("Navigating to '设置策略' -> '反买反卖'...");
+      // Screenshot 4: Detailed Report Modal Popup
+      console.log("Capturing 04_pair_detail_modal_popup.png...");
+      await page.screenshot({
+        path: path.join(SCREENSHOT_DIR, "04_pair_detail_modal_popup.png"),
+        fullPage: false,
+      });
+
+      // Close modal popup
+      console.log("Closing PairDetailModal popup...");
+      const closeModalBtn = page.locator('[data-testid="close-detail-modal-btn"]');
+      await closeModalBtn.click();
+      await modalLocator.waitFor({ state: "detached", timeout: 5000 });
+      await page.waitForTimeout(600);
+    }
+
+    // 7. Navigate to "设置策略" -> "专属打工小号"
+    console.log("Navigating to '设置策略' -> '专属打工小号'...");
     await page.evaluate(() => window.scrollTo({ top: 0, behavior: "instant" }));
     await page.waitForTimeout(400);
 
@@ -287,28 +307,137 @@ async function main() {
     await strategyTab.click();
     await page.waitForTimeout(800);
 
-    const reverseSubTab = page.locator("button", { hasText: "反买反卖" });
-    await reverseSubTab.click();
+    // Click dedicated "专属打工小号" tab
+    const keeperSubTab = page.getByRole("button", { name: "专属打工小号", exact: true });
+    await keeperSubTab.click();
     await page.waitForTimeout(1000);
 
-    // Generate local keeper if not yet generated
+    // Generate fresh Keeper wallet if not yet generated
     const generateKeeperBtn = page.locator("button", { hasText: "一键生成本地专属打工小号" });
     if (await generateKeeperBtn.isVisible()) {
-      console.log("Generating local Keeper wallet in UI...");
+      console.log("Generating fresh local Keeper wallet in UI...");
       await generateKeeperBtn.click();
       await page.waitForTimeout(1500);
     }
 
-    // Screenshot 5: Reverse Trade Strategy & Keeper Status
-    console.log("Capturing 05_reverse_trade_and_keeper.png...");
+    // Dismiss any prior toast
+    const dismissToast = async () => {
+      const closeToast = page.locator(".shadow-2xl button, .fixed.bottom-5 button").first();
+      if (await closeToast.isVisible()) {
+        await closeToast.click().catch(() => {});
+        await page.waitForTimeout(400);
+      }
+    };
+    await dismissToast();
+
+    // Fund Gas from Master Wallet to Keeper EOA (0.005 BNB)
+    const fundBtn = page.locator("button", { hasText: /划转/ }).first();
+    if (await fundBtn.isVisible()) {
+      console.log("Funding 0.005 BNB Gas to Keeper wallet...");
+      await fundBtn.click();
+      for (let i = 0; i < 25; i++) {
+        await page.waitForTimeout(1200);
+        const toast = page.locator(".shadow-2xl h4");
+        if (await toast.isVisible()) {
+          const t = await toast.textContent();
+          if (t?.includes("Gas 充值成功") || t?.includes("成功")) break;
+        }
+      }
+      await page.waitForTimeout(1000);
+    }
+    await dismissToast();
+
+    // Bind Keeper on-chain if not yet bound
+    const bindKeeperBtn = page.locator("button", { hasText: "主钱包发起 setKeeper 绑定" });
+    if (await bindKeeperBtn.isVisible()) {
+      console.log("Triggering on-chain setKeeper binding...");
+      await bindKeeperBtn.click();
+      for (let i = 0; i < 25; i++) {
+        await page.waitForTimeout(1200);
+        const toast = page.locator(".shadow-2xl h4");
+        if (await toast.isVisible()) {
+          const t = await toast.textContent();
+          if (t?.includes("绑定成功") || t?.includes("成功")) break;
+        }
+      }
+      await page.waitForTimeout(1000);
+    }
+    await dismissToast();
+
+    // Approve tokens to proxy contract if not yet approved
+    const approveToken0Btn = page.locator("button", { hasText: "一键授权 ALPHA" });
+    if (await approveToken0Btn.isVisible()) {
+      console.log("Authorizing ALPHA to Keeper Proxy contract...");
+      await approveToken0Btn.click();
+      for (let i = 0; i < 25; i++) {
+        await page.waitForTimeout(1200);
+        const toast = page.locator(".shadow-2xl h4");
+        if (await toast.isVisible()) {
+          const t = await toast.textContent();
+          if (t?.includes("授权成功") || t?.includes("成功")) break;
+        }
+      }
+      await page.waitForTimeout(1000);
+    }
+    await dismissToast();
+
+    const approveToken1Btn = page.locator("button", { hasText: "一键授权 BETA" });
+    if (await approveToken1Btn.isVisible()) {
+      console.log("Authorizing BETA to Keeper Proxy contract...");
+      await approveToken1Btn.click();
+      for (let i = 0; i < 25; i++) {
+        await page.waitForTimeout(1200);
+        const toast = page.locator(".shadow-2xl h4");
+        if (await toast.isVisible()) {
+          const t = await toast.textContent();
+          if (t?.includes("授权成功") || t?.includes("成功")) break;
+        }
+      }
+      await page.waitForTimeout(1000);
+    }
+    await dismissToast();
+
+    // Screenshot 5: Dedicated Keeper Custody Tab
+    console.log("Capturing 05_keeper_dedicated_tab.png...");
     await page.screenshot({
-      path: path.join(SCREENSHOT_DIR, "05_reverse_trade_and_keeper.png"),
+      path: path.join(SCREENSHOT_DIR, "05_keeper_dedicated_tab.png"),
+      fullPage: false,
+    });
+
+    // Switch to "反买反卖" sub-tab and test Dropdown Selector with Search
+    console.log("Navigating to '反买反卖' and testing PairDropdownSelector with Search...");
+    const reverseSubTab = page.getByRole("button", { name: "反买反卖", exact: true });
+    await reverseSubTab.click();
+    await page.waitForTimeout(800);
+
+    // Test pair dropdown search
+    const pairDropdownTrigger = page.locator('[data-testid="pair-dropdown-trigger"]');
+    if (await pairDropdownTrigger.isVisible()) {
+      await pairDropdownTrigger.click();
+      await page.waitForTimeout(500);
+
+      const searchInput = page.locator('[data-testid="pair-dropdown-search-input"]');
+      await searchInput.fill("ALPHA");
+      await page.waitForTimeout(500);
+
+      // Select ALPHA / BETA option
+      const alphaBetaOption = page.locator('[data-testid*="pair-option"]').first();
+      if (await alphaBetaOption.isVisible()) {
+        await alphaBetaOption.click();
+        await page.waitForTimeout(500);
+      }
+    }
+
+    // Screenshot 11: Pair Dropdown Selector & Reverse Trade
+    console.log("Capturing 11_pair_dropdown_selector.png...");
+    await page.screenshot({
+      path: path.join(SCREENSHOT_DIR, "11_pair_dropdown_selector.png"),
       fullPage: false,
     });
 
     // 8. Navigate to "AI自动交易"
     console.log("Navigating to 'AI自动交易'...");
-    const autoTradeSubTab = page.locator("button", { hasText: "AI自动交易" });
+    const autoTradeSubTab = page.getByRole("button", { name: "AI自动交易", exact: true });
     await autoTradeSubTab.click();
     await page.waitForTimeout(1500);
 
@@ -474,7 +603,9 @@ async function main() {
     console.log("=================================================\n");
   } finally {
     await browser.close();
-    await server.close();
+    if (server) {
+      await server.close();
+    }
   }
 }
 

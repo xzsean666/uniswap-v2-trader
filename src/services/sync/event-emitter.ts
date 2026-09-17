@@ -11,6 +11,7 @@ export interface SwapLogPayload {
   effectivePrice?: number;
   timestamp: number;
   additionalData?: Record<string, unknown>;
+  source?: "realtime" | "historical";
 }
 
 export interface AppEventMap {

@@ -24,7 +24,6 @@ import {
   sendSetKeeperTransaction,
   sendRemoveKeeperTransaction,
 } from "../contracts/proxy-trader";
-import { useActivePair } from "./ActivePairContext";
 
 export interface KeeperContextState {
   keeper: StoredKeeperData | null;
@@ -54,7 +53,6 @@ export interface KeeperProviderProps {
 
 export const KeeperProvider: React.FC<KeeperProviderProps> = ({ children }) => {
   const { address: userAddress, provider, chainId } = useWallet();
-  const { customContract } = useActivePair();
 
   // Local Keeper state
   const [keeper, setKeeper] = useState<StoredKeeperData | null>(() =>
@@ -84,9 +82,7 @@ export const KeeperProvider: React.FC<KeeperProviderProps> = ({ children }) => {
   // Resolve active proxy contract address
   const activeChainId = chainId ?? 97;
   const proxyAddress =
-    (customContract.enabled && customContract.contractAddress
-      ? resolveProxyTraderAddress(activeChainId, customContract.contractAddress)
-      : resolveProxyTraderAddress(activeChainId)) ||
+    resolveProxyTraderAddress(activeChainId) ||
     resolveProxyTraderAddress(97)!;
 
   // Refresh balance

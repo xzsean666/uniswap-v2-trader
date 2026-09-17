@@ -138,3 +138,40 @@ export class StrategyStore {
     return [];
   }
 }
+
+export interface PairStrategySummary {
+  hasActive: boolean;
+  reverseBuy: boolean;
+  reverseSell: boolean;
+  autoActive: boolean;
+  details: string;
+}
+
+/**
+ * Retrieve active strategy status for a pair to display in monitor dashboard cards
+ */
+export function getPairStrategySummary(pairAddress: string): PairStrategySummary {
+  const cfg = StrategyStore.loadAutoTrade(pairAddress);
+  const reverseBuy = Boolean(cfg.buy?.active);
+  const reverseSell = Boolean(cfg.sell?.active);
+  const autoActive = Boolean(
+    (cfg.buy?.active && cfg.buy?.auto) || (cfg.sell?.active && cfg.sell?.auto)
+  );
+  const hasActive = reverseBuy || reverseSell;
+
+  let details = "策略已关闭";
+  if (hasActive) {
+    const parts: string[] = [];
+    if (reverseBuy) parts.push(`买跌${cfg.buy.dropThreshold}%`);
+    if (reverseSell) parts.push(`卖涨${cfg.sell.riseThreshold}%`);
+    details = parts.join(" | ");
+  }
+
+  return {
+    hasActive,
+    reverseBuy,
+    reverseSell,
+    autoActive,
+    details,
+  };
+}

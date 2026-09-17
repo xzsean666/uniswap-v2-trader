@@ -17,12 +17,14 @@ import {
   calculateTargetPrice,
 } from "../../strategies/auto-trade-types";
 import { StrategyStore } from "../../strategies/strategy-store";
+import { KeeperDependencyGuard } from "../../components/keeper/KeeperDependencyGuard";
 
 export interface PriceGrowthPanelProps {
   pairAddress?: string;
   token0Symbol?: string;
   token1Symbol?: string;
   currentPrice?: number;
+  onNavigateToKeeper?: () => void;
 }
 
 export const PriceGrowthPanel: React.FC<PriceGrowthPanelProps> = ({
@@ -30,6 +32,7 @@ export const PriceGrowthPanel: React.FC<PriceGrowthPanelProps> = ({
   token0Symbol = "ACP",
   token1Symbol = "USDT",
   currentPrice = 0.99365,
+  onNavigateToKeeper,
 }) => {
   const [config, setConfig] = useState<PriceGrowthConfig>(() =>
     StrategyStore.loadPriceGrowth(pairAddress, currentPrice)
@@ -73,6 +76,9 @@ export const PriceGrowthPanel: React.FC<PriceGrowthPanelProps> = ({
           <span>价格增长策略配置已保存并激活！</span>
         </div>
       )}
+
+      {/* Keeper Dependency Status & Guard */}
+      <KeeperDependencyGuard onNavigateToKeeper={onNavigateToKeeper || (() => {})} />
 
       {/* Main Strategy Card */}
       <CyberCard className="space-y-4 border-cyber-border">

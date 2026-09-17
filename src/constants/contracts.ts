@@ -26,33 +26,45 @@ export const CONTRACT_ADDRESSES = {
   WBNB: "0xae13d989daC2f0dEbFf460aC112a837C89BAa7cd" as `0x${string}`,
 } as const;
 
-export const BSC_TESTNET_RPCS = [
-  "https://bsc-testnet-dataseed.bnbchain.org",
-  "https://bsc-testnet-rpc.publicnode.com",
-  "https://bsc-testnet.drpc.org",
-] as const;
+import {
+  RpcPoolManager,
+  DEFAULT_BSC_TESTNET_RPCS,
+  DEFAULT_BSC_MAINNET_RPCS,
+  DEFAULT_LOCALHOST_RPCS,
+  DEFAULT_BSC_TESTNET_ARCHIVE_RPCS,
+  DEFAULT_BSC_TESTNET_STANDARD_RPCS,
+  DEFAULT_BSC_MAINNET_ARCHIVE_RPCS,
+  DEFAULT_BSC_MAINNET_STANDARD_RPCS,
+} from "../services/rpc/rpc-pool-manager";
 
-export const BSC_MAINNET_RPCS = [
-  "https://bsc-dataseed.binance.org",
-  "https://bsc-rpc.publicnode.com",
-  "https://binance.llamarpc.com",
-] as const;
-
-export const LOCALHOST_RPCS = [
-  "http://127.0.0.1:8545",
-] as const;
+export const BSC_TESTNET_RPCS = DEFAULT_BSC_TESTNET_RPCS;
+export const BSC_MAINNET_RPCS = DEFAULT_BSC_MAINNET_RPCS;
+export const LOCALHOST_RPCS = DEFAULT_LOCALHOST_RPCS;
+export const BSC_TESTNET_ARCHIVE_RPCS = DEFAULT_BSC_TESTNET_ARCHIVE_RPCS;
+export const BSC_TESTNET_STANDARD_RPCS = DEFAULT_BSC_TESTNET_STANDARD_RPCS;
+export const BSC_MAINNET_ARCHIVE_RPCS = DEFAULT_BSC_MAINNET_ARCHIVE_RPCS;
+export const BSC_MAINNET_STANDARD_RPCS = DEFAULT_BSC_MAINNET_STANDARD_RPCS;
 
 /**
- * Retrieve high-availability RPC endpoint pool for given Chain ID
+ * Retrieve high-availability RPC endpoint pool for given Chain ID,
+ * combining verified default endpoints with user custom-injected endpoints.
  */
 export function getRpcUrlsForChain(chainId?: number): readonly string[] {
-  if (chainId === 31337) {
-    return LOCALHOST_RPCS;
-  }
-  if (chainId === 56) {
-    return BSC_MAINNET_RPCS;
-  }
-  return BSC_TESTNET_RPCS;
+  return RpcPoolManager.getActiveRpcUrls(chainId);
+}
+
+/**
+ * Retrieve verified Archive RPC endpoint pool for deep historical backfill.
+ */
+export function getArchiveRpcUrlsForChain(chainId?: number): readonly string[] {
+  return RpcPoolManager.getArchiveRpcUrls(chainId);
+}
+
+/**
+ * Retrieve high-throughput Standard / Full RPC endpoint pool for realtime blocks, multicall, and transactions.
+ */
+export function getStandardRpcUrlsForChain(chainId?: number): readonly string[] {
+  return RpcPoolManager.getStandardRpcUrls(chainId);
 }
 
 export interface PresetPair {

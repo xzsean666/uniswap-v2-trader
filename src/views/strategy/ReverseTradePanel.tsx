@@ -33,14 +33,11 @@ import { useWallet } from "../../hooks/useWallet";
 import { useNotification } from "../../components/notification/NotificationContext";
 import { simulateTradeDryRun } from "../../strategies/reverse-trade-engine";
 import { checkAndApprove } from "../../services/trading/token-approval";
-import {
-  dispatchSwapTransaction,
-  waitForTransactionReceipt,
-} from "../../services/trading/trade-dispatcher";
+import { waitForTransactionReceipt } from "../../services/trading/trade-dispatcher";
 import { executeKeeperSwap } from "../../services/trading/keeper-executor";
 import { CONTRACT_ADDRESSES } from "../../constants/contracts";
 import { useKeeper } from "../../context/KeeperContext";
-import { KeeperCard } from "../../components/keeper/KeeperCard";
+import { KeeperDependencyGuard } from "../../components/keeper/KeeperDependencyGuard";
 import { useStrategyRunner } from "../../context/StrategyRunnerContext";
 
 export interface ReverseTradePanelProps {
@@ -57,6 +54,7 @@ export interface ReverseTradePanelProps {
     contractAddress?: Address;
     methodName?: string;
   };
+  onNavigateToKeeper?: () => void;
 }
 
 export const ReverseTradePanel: React.FC<ReverseTradePanelProps> = ({
@@ -68,14 +66,14 @@ export const ReverseTradePanel: React.FC<ReverseTradePanelProps> = ({
   token0Decimals = 18,
   token1Decimals = 18,
   currentPrice = 0.99365,
-  customProxy,
+  onNavigateToKeeper,
 }) => {
   const { address, provider, isConnected, isBscTestnet, chainId } = useWallet();
   const { showNotification } = useNotification();
   const {
     keeper,
+    keeperBalance,
     isBoundToCurrentProxy,
-    isSilentEnabled,
     proxyAddress,
     refreshBalance,
   } = useKeeper();
@@ -117,12 +115,20 @@ export const ReverseTradePanel: React.FC<ReverseTradePanelProps> = ({
 
   const handleApplyBuy = () => {
     applyAndActivateStrategy(config, currentPrice);
-    showToast("反向买入策略已保存，全自动监控与静默交易已激活！");
+    if (!keeper) {
+      showToast("策略已保存！需前往「专属打工小号」Tab 配置小号以激活全自动交易。");
+    } else {
+      showToast("反向买入策略已保存，全自动监控与静默交易已激活！");
+    }
   };
 
   const handleApplySell = () => {
     applyAndActivateStrategy(config, currentPrice);
-    showToast("反向卖出策略已保存，全自动监控与静默交易已激活！");
+    if (!keeper) {
+      showToast("策略已保存！需前往「专属打工小号」Tab 配置小号以激活全自动交易。");
+    } else {
+      showToast("反向卖出策略已保存，全自动监控与静默交易已激活！");
+    }
   };
 
   const handleSimulateAndExecute = async (side: "buy" | "sell") => {
@@ -144,6 +150,37 @@ export const ReverseTradePanel: React.FC<ReverseTradePanelProps> = ({
       return;
     }
 
+    // Guard: Keeper sub-account is mandatory for reverse trade execution
+    if (!keeper) {
+      showNotification({
+        status: "failed",
+        title: "未配置打工小号",
+        message: "反向买卖必须由专属打工小号代发执行，请先前往「专属打工小号」Tab 生成或导入小号！",
+      });
+      onNavigateToKeeper?.();
+      return;
+    }
+
+    if (!isBoundToCurrentProxy) {
+      showNotification({
+        status: "failed",
+        title: "打工小号未完成链上绑定",
+        message: "反向买卖需由主钱包向代理合约授权绑定打工小号 (setKeeper)，请前往「专属打工小号」Tab 完成绑定！",
+      });
+      onNavigateToKeeper?.();
+      return;
+    }
+
+    if (keeperBalance && keeperBalance.balanceWei === 0n) {
+      showNotification({
+        status: "failed",
+        title: "打工小号燃料不足",
+        message: "打工小号当前 BNB Gas 余额为 0，请前往「专属打工小号」Tab 充值微量 Gas 燃料！",
+      });
+      onNavigateToKeeper?.();
+      return;
+    }
+
     const sideConfig = side === "buy" ? config.buy : config.sell;
     const tokenIn = side === "buy" ? token1Address : token0Address;
     const tokenOut = side === "buy" ? token0Address : token1Address;
@@ -152,17 +189,8 @@ export const ReverseTradePanel: React.FC<ReverseTradePanelProps> = ({
     const decimalsIn = side === "buy" ? token1Decimals : token0Decimals;
     const decimalsOut = side === "buy" ? token0Decimals : token1Decimals;
 
-    // Determine if Keeper silent mode is fully active
-    const isKeeperMode = isSilentEnabled && !!keeper && isBoundToCurrentProxy;
-
-    // Spender determination: if custom proxy is active, approve custom proxy contract;
-    // otherwise if keeper silent mode is enabled, approve proxyAddress; otherwise PancakeSwap Router
-    const spender =
-      customProxy?.enabled && customProxy.contractAddress
-        ? (customProxy.contractAddress as Address)
-        : isKeeperMode
-        ? proxyAddress
-        : CONTRACT_ADDRESSES.PANCAKE_ROUTER;
+    // Spender is always the Keeper Proxy Trader contract
+    const spender = proxyAddress;
 
     // Dynamic slippage: incorporates tax rate if tax deduction is active
     const baseSlippage = sideConfig.slippage ? 1.5 : 5.0;
@@ -200,13 +228,7 @@ export const ReverseTradePanel: React.FC<ReverseTradePanelProps> = ({
       showNotification({
         status: "approving",
         title: `检查 ${symbolIn} 授权...`,
-        message: `向 ${
-          spender === CONTRACT_ADDRESSES.PANCAKE_ROUTER
-            ? "PancakeSwap 路由"
-            : spender === proxyAddress
-            ? "Keeper 代理交易合约"
-            : "自定义代理合约"
-        } 检查额度`,
+        message: `向 Keeper 代理交易合约检查额度`,
       });
 
       const amountInBigInt = parseUnits(tradeAmount.toString(), decimalsIn);
@@ -229,52 +251,27 @@ export const ReverseTradePanel: React.FC<ReverseTradePanelProps> = ({
       }
 
       const expectedOut = simResult.expectedAmountOut;
-      let swapTxHash: `0x${string}`;
 
-      if (isKeeperMode && keeper) {
-        showNotification({
-          status: "broadcasting",
-          title: `打工小号 (Keeper) 正在免弹窗静默签名...`,
-          message: `由专属 Keeper 代发交易，资产全额回流主钱包`,
-        });
+      showNotification({
+        status: "broadcasting",
+        title: `打工小号 (Keeper) 正在代发${side === "buy" ? "反向买入" : "反向卖出"}...`,
+        message: `由专属 Keeper 免密代发交易，产物资金 100% 强制回流主钱包`,
+      });
 
-        const keeperRes = await executeKeeperSwap({
-          keeperPrivateKey: keeper.privateKey,
-          proxyAddress,
-          userAddress: address as Address,
-          tokenIn,
-          tokenOut,
-          amountIn: amountInBigInt,
-          expectedAmountOut: expectedOut,
-          slippagePercent: totalSlippage,
-          isFeeOnTransfer: sideConfig.taxActive,
-          chainId: chainId ?? 97,
-        });
+      const keeperRes = await executeKeeperSwap({
+        keeperPrivateKey: keeper.privateKey,
+        proxyAddress,
+        userAddress: address as Address,
+        tokenIn,
+        tokenOut,
+        amountIn: amountInBigInt,
+        expectedAmountOut: expectedOut,
+        slippagePercent: totalSlippage,
+        isFeeOnTransfer: sideConfig.taxActive,
+        chainId: chainId ?? 97,
+      });
 
-        swapTxHash = keeperRes.txHash;
-      } else {
-        showNotification({
-          status: "broadcasting",
-          title: `正在发起 ${side === "buy" ? "反向买入" : "反向卖出"} 交易签名...`,
-          message: "请在钱包插件中确认签名交易",
-        });
-
-        const swapRes = await dispatchSwapTransaction(provider, {
-          side,
-          tokenIn,
-          tokenOut,
-          amountIn: amountInBigInt,
-          expectedAmountOut: expectedOut,
-          slippagePercent: totalSlippage,
-          recipient: address as Address,
-          customProxy:
-            customProxy?.enabled && customProxy.contractAddress
-              ? customProxy
-              : undefined,
-        });
-
-        swapTxHash = swapRes.txHash;
-      }
+      const swapTxHash = keeperRes.txHash;
 
       showNotification({
         status: "pending",
@@ -284,10 +281,7 @@ export const ReverseTradePanel: React.FC<ReverseTradePanelProps> = ({
       });
 
       const receipt = await waitForTransactionReceipt(swapTxHash, 60000, 2000);
-
-      if (isKeeperMode) {
-        refreshBalance();
-      }
+      refreshBalance();
 
       if (receipt.status === "success") {
         recordExecution({
@@ -305,9 +299,7 @@ export const ReverseTradePanel: React.FC<ReverseTradePanelProps> = ({
         showNotification({
           status: "success",
           title: `${side === "buy" ? "反向买入" : "反向卖出"} 交易已确认！`,
-          message: `交易成功打包于区块 #${receipt.blockNumber.toString()}${
-            isKeeperMode ? " (Keeper 免弹窗静默成交)" : ""
-          }`,
+          message: `交易成功打包于区块 #${receipt.blockNumber.toString()} (由打工小号静默成交，资产已回流主钱包)`,
           txHash: swapTxHash,
         });
       } else {
@@ -339,8 +331,8 @@ export const ReverseTradePanel: React.FC<ReverseTradePanelProps> = ({
         </div>
       )}
 
-      {/* Dedicated Keeper Automated Custody Card */}
-      <KeeperCard />
+      {/* Keeper Dependency Guard & Status Banner */}
+      <KeeperDependencyGuard onNavigateToKeeper={onNavigateToKeeper || (() => {})} />
 
       {/* Live Autonomous Trading Monitor Card */}
       <CyberCard className="space-y-3 border-cyber-border bg-gradient-to-br from-slate-900/90 to-cyber-card/90">

@@ -45,8 +45,9 @@ export function startRealtimePolling(
       const storedCount = updateResult.storedLogs ?? updateResult.decodedLogs ?? 0;
 
       if (storedCount > 0) {
-        // Query recent events from event lake
+        // Query recent events from event lake, prioritizing Swap events
         const page = await lake.events.findMany({
+          where: { eventName: "Swap" },
           limit: Math.min(storedCount, 20),
           order: "descending",
         });
@@ -56,6 +57,10 @@ export function startRealtimePolling(
         const chronologicalItems = [...page.items].reverse();
 
         for (const item of chronologicalItems) {
+          if (item.eventName && item.eventName !== "Swap") {
+            continue;
+          }
+
           const eventKey = `${item.transactionHash}:${item.logIndex}`;
           if (session.emittedKeys.has(eventKey)) {
             continue;
@@ -69,16 +74,31 @@ export function startRealtimePolling(
           }
 
           const enrichData = item.additionalData as SwapEnrichmentData | undefined;
+          const args = (item.arguments ?? {}) as Record<string, unknown>;
+          const amount0In = enrichData?.amount0In ?? String(args.amount0In ?? "0");
+          const amount1In = enrichData?.amount1In ?? String(args.amount1In ?? "0");
+          const amount0Out = enrichData?.amount0Out ?? String(args.amount0Out ?? "0");
+          const amount1Out = enrichData?.amount1Out ?? String(args.amount1Out ?? "0");
+
+          let direction = enrichData?.direction ?? "unknown";
+          if (direction === "unknown") {
+            const a0In = BigInt(amount0In || "0");
+            const a1In = BigInt(amount1In || "0");
+            const a0Out = BigInt(amount0Out || "0");
+            const a1Out = BigInt(amount1Out || "0");
+            if (a0In > 0n && a1Out > 0n) direction = "sell";
+            else if (a1In > 0n && a0Out > 0n) direction = "buy";
+          }
 
           const payload: SwapLogPayload = {
             pairAddress: key,
             transactionHash: item.transactionHash,
             blockNumber: item.blockNumber.toString(),
             logIndex: item.logIndex,
-            direction: enrichData?.direction ?? "unknown",
-            amount0: enrichData?.amount0In !== "0" ? enrichData?.amount0In ?? "0" : enrichData?.amount0Out ?? "0",
-            amount1: enrichData?.amount1In !== "0" ? enrichData?.amount1In ?? "0" : enrichData?.amount1Out ?? "0",
-            effectivePrice: enrichData?.effectivePrice1Per0,
+            direction,
+            amount0: amount0In !== "0" ? amount0In : amount0Out,
+            amount1: amount1In !== "0" ? amount1In : amount1Out,
+            effectivePrice: enrichData?.effectivePrice1Per0 ?? undefined,
             timestamp: enrichData?.enrichedAt ?? Date.now(),
             additionalData: (item.additionalData as Record<string, unknown>) ?? {},
           };

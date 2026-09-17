@@ -11,7 +11,15 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:local": "bash scripts/test-local-integration.sh",
-    "node:local": "bash scripts/start-local-node.sh"
+    "node:local": "bash scripts/start-local-node.sh",
+    "deploy": "bash scripts/deploy-cloudflare.sh",
+    "deploy:cf": "bash scripts/deploy-cloudflare.sh",
+    "deploy:pages": "bash scripts/deploy-cloudflare.sh --target pages",
+    "deploy:workers": "bash scripts/deploy-cloudflare.sh --target workers",
+    "deploy:and:test": "bash scripts/deploy-cloudflare.sh --test",
+    "test:cf": "tsx scripts/test-cf-deployment.ts",
+    "test:metamask": "tsx scripts/e2e-live-browser.ts",
+    "test:metamask:cf": "tsx scripts/e2e-live-browser.ts https://uniswap-v2-trader.pages.dev"
   },
   "dependencies": {
     "@evm-event-lake/node-sdk": "github:xzsean666/EVMEventLake-Node-SDK#1d92284e6d145c4e9a5f303dfab5d42785639be9",
@@ -35,6 +43,7 @@
     "tsx": "^4.23.13",
     "typescript": "^5.7.3",
     "vite": "^6.2.0",
-    "vitest": "^3.0.7"
+    "vitest": "^3.0.7",
+    "wrangler": "^4.132.0"
   }
 }

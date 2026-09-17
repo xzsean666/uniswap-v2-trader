@@ -15,11 +15,64 @@ export interface SwapEnrichmentData {
 }
 
 /**
- * Creates an enricher hook for Uniswap/PancakeSwap V2 Swap events
+ * Recursively strips any properties with undefined or non-finite number values
+ * to guarantee strict compatibility with @evm-event-lake/node-sdk's encodeDecodedValue.
+ */
+export function sanitizeForDecodedValueCodec<T>(value: T): T {
+  if (value === undefined) {
+    return null as unknown as T;
+  }
+  if (value === null || typeof value !== "object") {
+    if (typeof value === "number") {
+      return (Number.isFinite(value) ? value : null) as unknown as T;
+    }
+    return value;
+  }
+  if (Array.isArray(value)) {
+    return value.map((item) =>
+      item === undefined ? null : sanitizeForDecodedValueCodec(item)
+    ) as unknown as T;
+  }
+  const result: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(value)) {
+    if (val !== undefined) {
+      if (typeof val === "number" && !Number.isFinite(val)) {
+        continue;
+      }
+      result[key] = sanitizeForDecodedValueCodec(val);
+    }
+  }
+  return result as unknown as T;
+}
+
+/**
+ * Creates an enricher hook for Uniswap/PancakeSwap V2 Swap events.
+ * Returns null for non-Swap events (Sync, Mint, Burn, etc.) or malformed logs.
  */
 export function createSwapEnricher(token0Decimals = 18, token1Decimals = 18): EventEnricher {
-  return (context: EventEnrichmentContext): SwapEnrichmentData => {
-    const args = (context.arguments ?? {}) as Record<string, unknown>;
+  return (context: EventEnrichmentContext): SwapEnrichmentData | null => {
+    // Only enrich valid decoded Swap events
+    if (context.eventName && context.eventName !== "Swap") {
+      return null;
+    }
+    if (context.decodeStatus && context.decodeStatus !== "decoded") {
+      return null;
+    }
+    if (!context.arguments) {
+      return null;
+    }
+
+    const args = context.arguments as Record<string, unknown>;
+
+    // Verify presence of at least one Swap parameter
+    if (
+      args.amount0In === undefined &&
+      args.amount1In === undefined &&
+      args.amount0Out === undefined &&
+      args.amount1Out === undefined
+    ) {
+      return null;
+    }
 
     const amount0In = BigInt(String(args.amount0In ?? "0"));
     const amount1In = BigInt(String(args.amount1In ?? "0"));
@@ -51,24 +104,37 @@ export function createSwapEnricher(token0Decimals = 18, token1Decimals = 18): Ev
       );
 
       if (a0 > 0 && a1 > 0) {
-        effectivePrice0Per1 = a0 / a1;
-        effectivePrice1Per0 = a1 / a0;
+        const p01 = a0 / a1;
+        const p10 = a1 / a0;
+        if (Number.isFinite(p01)) effectivePrice0Per1 = p01;
+        if (Number.isFinite(p10)) effectivePrice1Per0 = p10;
       }
     } catch {
       // Fallback if formatting fails
     }
 
-    return {
+    const enrichment: SwapEnrichmentData = {
       direction,
       amount0In: amount0In.toString(),
       amount1In: amount1In.toString(),
       amount0Out: amount0Out.toString(),
       amount1Out: amount1Out.toString(),
-      sender,
-      to,
-      effectivePrice0Per1,
-      effectivePrice1Per0,
       enrichedAt: Date.now(),
     };
+
+    if (sender) {
+      enrichment.sender = sender;
+    }
+    if (to) {
+      enrichment.to = to;
+    }
+    if (effectivePrice0Per1 !== undefined) {
+      enrichment.effectivePrice0Per1 = effectivePrice0Per1;
+    }
+    if (effectivePrice1Per0 !== undefined) {
+      enrichment.effectivePrice1Per0 = effectivePrice1Per0;
+    }
+
+    return sanitizeForDecodedValueCodec(enrichment);
   };
 }

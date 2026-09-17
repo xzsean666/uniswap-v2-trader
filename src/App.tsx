@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Menu,
   Globe,
@@ -6,6 +6,7 @@ import {
   LogOut,
   CheckCircle2,
   AlertTriangle,
+  Server,
 } from "lucide-react";
 import { useWallet } from "./hooks/useWallet";
 import { SegmentedTabs } from "./components/ui/SegmentedTabs";
@@ -16,11 +17,15 @@ import { AutoTradePanel } from "./views/strategy/AutoTradePanel";
 import { PriceGrowthPanel } from "./views/strategy/PriceGrowthPanel";
 import { ReverseTradePanel } from "./views/strategy/ReverseTradePanel";
 import { TestnetFaucetView } from "./views/faucet/TestnetFaucetView";
+import { RpcPoolManager } from "./services/rpc/rpc-pool-manager";
+import { RpcManagerModal } from "./components/rpc/RpcManagerModal";
+import { KeeperCard } from "./components/keeper/KeeperCard";
+import { PairDropdownSelector } from "./components/pair-selector/PairDropdownSelector";
 
 import { useActivePair } from "./context/ActivePairContext";
 
 export type PrimaryTab = "monitor" | "strategy" | "faucet";
-export type StrategySubTab = "reverse" | "auto" | "arbitrage";
+export type StrategySubTab = "keeper" | "reverse" | "auto" | "arbitrage";
 
 export const App: React.FC = () => {
   const {
@@ -38,9 +43,21 @@ export const App: React.FC = () => {
     clearError,
   } = useWallet();
 
-  const { activePair, customContract } = useActivePair();
+  const { activePair, subscriptions, selectPair } = useActivePair();
 
   const [showWalletMenu, setShowWalletMenu] = useState(false);
+  const [showRpcModal, setShowRpcModal] = useState(false);
+  const [activeRpcCount, setActiveRpcCount] = useState(() =>
+    RpcPoolManager.getActiveRpcUrls(97).length
+  );
+
+  useEffect(() => {
+    const unsub = RpcPoolManager.onPoolChange((_cId, urls) => {
+      setActiveRpcCount(urls.length);
+    });
+    return unsub;
+  }, []);
+
   const [primaryTab, setPrimaryTab] = useState<PrimaryTab>("strategy");
   const [strategySubTab, setStrategySubTab] =
     useState<StrategySubTab>("reverse");
@@ -155,15 +172,27 @@ export const App: React.FC = () => {
             </CyberButton>
           )}
 
-          <button
-            type="button"
-            onClick={switchToBsc}
-            className="p-1.5 text-cyber-cyan hover:bg-cyber-cyan/10 rounded-lg transition-colors"
-            title="BSC 测试网"
-            aria-label="Network"
-          >
-            <Globe className="w-5 h-5" />
-          </button>
+          <div className="flex items-center space-x-1.5">
+            <button
+              type="button"
+              onClick={() => setShowRpcModal(true)}
+              className="flex items-center space-x-1 px-2.5 py-1 rounded-full bg-cyber-cardInner/90 hover:bg-cyber-cardInner border border-slate-700/80 hover:border-cyber-cyan/60 text-xs font-mono text-slate-200 transition-all shadow-sm"
+              title="管理 RPC 节点池与测速"
+            >
+              <Server className="w-3.5 h-3.5 text-cyber-cyan" />
+              <span className="text-[11px] text-emerald-400 font-semibold">{activeRpcCount}</span>
+            </button>
+
+            <button
+              type="button"
+              onClick={switchToBsc}
+              className="p-1.5 text-cyber-cyan hover:bg-cyber-cyan/10 rounded-lg transition-colors"
+              title="BSC 测试网"
+              aria-label="Network"
+            >
+              <Globe className="w-5 h-5" />
+            </button>
+          </div>
         </header>
 
         {/* Global Error Banner */}
@@ -194,20 +223,39 @@ export const App: React.FC = () => {
 
         {/* Sub-tabs when in Strategy mode */}
         {primaryTab === "strategy" && (
-          <SubTabs
-            className="mb-4"
-            activeId={strategySubTab}
-            onChange={setStrategySubTab}
-            options={[
-              { id: "reverse", label: "反买反卖" },
-              { id: "auto", label: "AI自动交易" },
-              { id: "arbitrage", label: "AI套利机器人" },
-            ]}
-          />
+          <>
+            <SubTabs
+              className="mb-3"
+              activeId={strategySubTab}
+              onChange={(id) => setStrategySubTab(id as StrategySubTab)}
+              options={[
+                { id: "keeper", label: "专属打工小号" },
+                { id: "reverse", label: "反买反卖" },
+                { id: "auto", label: "AI自动交易" },
+                { id: "arbitrage", label: "AI套利机器人" },
+              ]}
+            />
+
+            {/* Target LP Pair Dropdown Selector with Search */}
+            <PairDropdownSelector
+              subscriptions={subscriptions}
+              activePairAddress={activePair?.pairAddress}
+              onSelectPair={selectPair}
+              onAddNewPair={async (addr) => {
+                await selectPair(addr, true);
+              }}
+              chainId={97}
+              className="mb-3.5"
+            />
+          </>
         )}
 
         {/* Viewport Content */}
         <main className="flex-1 space-y-4 pb-12">
+          {primaryTab === "strategy" && strategySubTab === "keeper" && (
+            <KeeperCard />
+          )}
+
           {primaryTab === "strategy" && strategySubTab === "reverse" && (
             <ReverseTradePanel
               pairAddress={activePair?.pairAddress}
@@ -218,15 +266,7 @@ export const App: React.FC = () => {
               token0Decimals={activePair?.token0.decimals}
               token1Decimals={activePair?.token1.decimals}
               currentPrice={activePair?.price1Per0}
-              customProxy={
-                customContract.enabled && customContract.contractAddress
-                  ? {
-                      enabled: true,
-                      contractAddress: customContract.contractAddress as any,
-                      methodName: customContract.methodName,
-                    }
-                  : undefined
-              }
+              onNavigateToKeeper={() => setStrategySubTab("keeper")}
             />
           )}
 
@@ -236,6 +276,7 @@ export const App: React.FC = () => {
               token0Symbol={activePair?.token0.symbol}
               token1Symbol={activePair?.token1.symbol}
               currentPrice={activePair?.price1Per0}
+              onNavigateToKeeper={() => setStrategySubTab("keeper")}
             />
           )}
 
@@ -245,10 +286,19 @@ export const App: React.FC = () => {
               token0Symbol={activePair?.token0.symbol}
               token1Symbol={activePair?.token1.symbol}
               currentPrice={activePair?.price1Per0}
+              onNavigateToKeeper={() => setStrategySubTab("keeper")}
             />
           )}
 
-          {primaryTab === "monitor" && <SwapMonitorView />}
+          {primaryTab === "monitor" && (
+            <SwapMonitorView
+              onNavigateToStrategy={(addr) => {
+                if (addr) selectPair(addr);
+                setPrimaryTab("strategy");
+                setStrategySubTab("reverse");
+              }}
+            />
+          )}
 
           {primaryTab === "faucet" && (
             <TestnetFaucetView
@@ -262,6 +312,12 @@ export const App: React.FC = () => {
           )}
 
         </main>
+
+        {/* Global RPC Node Pool Manager Modal */}
+        <RpcManagerModal
+          isOpen={showRpcModal}
+          onClose={() => setShowRpcModal(false)}
+        />
       </div>
     </div>
   );

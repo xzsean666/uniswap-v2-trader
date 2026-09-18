@@ -2,12 +2,21 @@
 
 ## 基本信息
 - **当前 Goal**: 构建基于蓝湖 UI 设计（统一采用 `设置策略1_d1ff7c96.png` 暗色科技感规范）、无内置钱包私钥/助记词存储、纯 Web3 签名登录的 Uniswap/PancakeSwap V2 量化交易 Web3 DApp
-- **当前 Task**: 多币对聚合 Swap 交易事件流历史归档与 25+ 深度保底保障 (TASK-020: Multi-Pair Aggregated Swap Trading Event Stream Depth Guarantee & Historical Fusion)
-- **当前状态**: DONE (所有用户反馈已彻底解决：彻底排查并修复由于历史加载器提前 return 导致池子仅显示单笔交易的问题；建立 TARGET_MIN_SWAP_EVENTS = 25 的全网深度保底机制；真实链上成交置顶，不足时按真实时间戳向前自动补齐历史基准成交；36 个测试套件 179 项测试通过，TypeScript 0 错误，生产构建 0 错误，E2E 浏览器截屏验证确认大屏与弹窗均展示 30 条完整成交流水)
+- **当前 Task**: 项目文档完善与主 README.md 生成 (包含实机截图解析、全自动交易机制与打工小号安全架构)
+- **当前状态**: DONE (已生成根目录 README.md，系统化梳理了 docs/screenshots 实机渲染截图、拆解了 5 步自动交易链路与 3 大链上安全公理，包含双钱包资产隔离 Zero-Theft 原理)
 
 ---
 
 ## 交付成果与问题修复总结 (Session Deliverables)
+
+### 0. 根目录 README.md 生成与产品说明文档交付
+- 生成了完整的 [`README.md`](file:///ssd0/git/uniswap-v2-trader/README.md)，包含：
+  1. **产品概述与视觉愿景**：说明纯 Web3 纯客户端架构、暗色科技风、BSC Testnet / PancakeSwap V2 协议定位与 Cloudflare Pages 演示链接；
+  2. **截图画廊与功能解析**：图文并茂分类呈现 `docs/screenshots` 中的 17 张实机截图（首页、签名登录、监控大屏、LP 详情弹窗、发光走势图、Keeper 托管 Tab、AI 策略买卖配置、Dry-Run 价格保底风控拦截、链上成功确认、中控流水表、测试网领水等）；
+  3. **自动化交易运行机制**：详细拆解 5 步自动闭环流程（事件底座同步 -> 汇率与指标富化 -> 策略触发器 -> Dry-Run 静态预执行风控拦截 -> 专属打工小号免密静默代发）；
+  4. **打工小号 (Keeper) 安全架构专题**：深度解析双钱包资产隔离模型（Dual-Wallet Asset-Isolated Pattern）、`Zero-Theft` 绝对资金归属公理、`Immutable Router`、零资金沉淀与主钱包 100% 资金支配权，彻底消除私钥泄露风险；
+  5. **技术栈架构、本地开发测试指南与测试网实机体验信息**。
+
 
 ### 1. 彻底解决“只显示一条交易”的根本原因与全量深度保障
 - **根本原因排查**:

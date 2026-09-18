@@ -1,6 +1,6 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "uniswap-v2-trader",
+  "name": "pk-trader-test",
   "compatibility_date": "2026-09-15",
   "assets": {
     "directory": "./dist",

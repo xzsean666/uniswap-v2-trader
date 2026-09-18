@@ -21,7 +21,7 @@ async function main() {
   const targetUrl =
     process.env.DEPLOY_URL ||
     process.argv[2] ||
-    "https://uniswap-v2-trader.pages.dev";
+    "https://pk-trader-test.pages.dev";
 
   console.log("=================================================");
   console.log("     Cloudflare Deployment Verification Suite    ");

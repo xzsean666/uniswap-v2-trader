@@ -54,3 +54,5 @@
 | **生产打包构建** | ✅ **0 错误 (`pnpm build`)** | 耗时 6.39s 完成生产打包，Chunk 体积良好 |
 | **Playwright 真实浏览器 E2E** | ✅ **13 项全部通过 (`pnpm test:metamask`)** | 验证监控大屏实时加载 30 笔历史交易流、标签筛选与刷新交互，真机快照已入库 |
 | **视觉快照交付** | ✅ **`docs/screenshots/03_swap_monitor_and_reserves.png`** | 确认交易流清晰展示历史与实时归档数据，不再空白 |
+| **Cloudflare 部署迁移** | ✅ **`https://pk-trader-test.pages.dev`** | 项目名称迁移至 `pk-trader-test`，E2E 自动化测试全绿通过 |
+

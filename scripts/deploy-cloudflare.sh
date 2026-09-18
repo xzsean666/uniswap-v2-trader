@@ -21,7 +21,7 @@ TARGET="pages"
 SKIP_BUILD=false
 RUN_TEST=false
 BRANCH="main"
-PROJECT_NAME="uniswap-v2-trader"
+PROJECT_NAME="pk-trader-test"
 
 print_banner() {
   echo -e "${CYAN}======================================================${NC}"
@@ -60,7 +60,7 @@ while [[ $# -gt 0 ]]; do
       echo "  --skip-build                       Skip running 'pnpm build'"
       echo "  --test                             Run E2E verification test after deployment"
       echo "  -b, --branch <name>                Target branch (default: main)"
-      echo "  -p, --project-name <name>          Cloudflare project name (default: uniswap-v2-trader)"
+      echo "  -p, --project-name <name>          Cloudflare project name (default: pk-trader-test)"
       echo "  -h, --help                         Show this help message"
       exit 0
       ;;
